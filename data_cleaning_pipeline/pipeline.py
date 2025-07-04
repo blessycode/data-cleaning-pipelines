@@ -1,5 +1,6 @@
 from data_cleaning_pipeline.utils import ingestion
 from data_cleaning_pipeline.cleaning import profiler
+from data_cleaning_pipeline.cleaning import missing
 
 def clean_data(source, file_type='csv', **kwargs):
     df, ingestion_report =ingestion.load_data(source, file_type=file_type, **kwargs)
@@ -13,4 +14,10 @@ def clean_data(source, file_type='csv', **kwargs):
     reports['categorical_profile'] = profiler.generate_categorical_profile(df)
     reports['visual_profile'] = profiler.generate_visual_profile(df, output_dir="profiling_reports")
 
-    return df, reports
+    #Missing
+    cleaned_df, missing_report = missing.handle_missing(df, strategy='impute', numeric_method='auto',categorical_method='mode',
+                                        constant_value=None,drop_threshold=0.05,skew_threshold=1.0)
+
+    reports['missing_handler'] = missing_report
+
+    return cleaned_df, reports
