@@ -2,6 +2,7 @@ from data_cleaning_pipeline.utils import ingestion
 from data_cleaning_pipeline.cleaning import profiler
 from data_cleaning_pipeline.cleaning import missing
 from data_cleaning_pipeline.cleaning import duplicate_handler
+from data_cleaning_pipeline.cleaning import outlier_handler
 
 def clean_data(source, file_type='csv', **kwargs):
     df, ingestion_report =ingestion.load_data(source, file_type=file_type, **kwargs)
@@ -26,5 +27,19 @@ def clean_data(source, file_type='csv', **kwargs):
     #duplicate handler
     cleaned_df, duplicate_report = duplicate_handler.duplicate_handler(cleaned_df, subset=None, keep='first', action='remove')
     reports['duplicate_handling'] = duplicate_report
+    
+    #outlier detection and handling
+    cleaned_df, outlier_report = outlier_handler.handle_outliers(
+        cleaned_df,
+        method='iqr',
+        threshold=3.0,
+        iqr_factor=1.5,
+        mcd_threshold=0.975,    
+        action='remove',
+        hypothesis_test=True,
+        significance_level=0.05
+    )
+
+    reports['outlier_handling'] = outlier_report
 
     return cleaned_df, reports
