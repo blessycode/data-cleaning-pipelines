@@ -35,7 +35,7 @@ def duplicate_handler(df, subset=None, keep='first', action='remove'):
 
     # Count duplicates after removal
     if action == 'remove':
-        duplicate_count_after = cleaned_df.duplicated(subset=subset, keep=False).sum
+        duplicate_count_after = cleaned_df.duplicated(subset=subset, keep=False).sum()
         report['duplicate_count_after'] = int(duplicate_count_after)
 
     else:
