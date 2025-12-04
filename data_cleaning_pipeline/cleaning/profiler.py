@@ -31,6 +31,7 @@ def generate_initial_report(df):
 
     # Duplicate rows
     report['duplicate_rows'] = int(df.duplicated().sum())
+    
 
     # Numerical profiling
     numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -84,26 +85,47 @@ def generate_visual_profile(df, output_dir="profiling_reports"):
     saved_files = {}
 
     # Missing values heatmap
-    plt.figure(figsize=(12, 6))
-    sns.heatmap(df.isnull(), cbar=False, cmap='viridis')
+    plt.figure(figsize=(14, 6))
+    sns.heatmap(df.isnull(), cbar=True, cmap='magma', linewidths=0.3, linecolor='gray')
+    plt.title("Missing Data Heatmap", fontsize=14, weight='bold')
+    plt.xlabel("Columns")
+    plt.ylabel("Rows")
+    plt.tight_layout() 
     missing_heatmap_path = os.path.join(output_dir, "missing_values_heatmap.png")
-    plt.title("Missing Values Heatmap")
-    plt.savefig(missing_heatmap_path, bbox_inches='tight')
+    plt.savefig(missing_heatmap_path, dpi=200)
     plt.close()
     saved_files['missing_values_heatmap'] = missing_heatmap_path
+    
+    
 
     # Histograms for numeric columns
     numeric_cols = df.select_dtypes(include='number').columns
     for col in numeric_cols:
-        plt.figure(figsize=(8, 4))
-        sns.histplot(df[col].dropna(), kde=True)
-        plt.title(f"Histogram for {col}")
+        plt.figure(figsize=(9, 5))
+        sns.histplot(df[col].dropna(), kde=True, bins=30, edgecolor='black')
+        plt.title(f"Distribution of {col}", fontsize=14, weight='bold')
         plt.xlabel(col)
         plt.ylabel("Frequency")
+        plt.grid(axis="y", linestyle='--',alpha=0.6)
+        plt.tight_layout()
         hist_path = os.path.join(output_dir, f"histogram_{col}.png")
         plt.savefig(hist_path, bbox_inches='tight')
         plt.close()
         saved_files[f"histogram_{col}"] = hist_path
+        
+        # Density plots for numeric columns
+    for col in numeric_cols:
+        plt.figure(figsize=(9, 5))
+        sns.kdeplot(df[col].dropna(), fill=True, linewidth=2)
+        plt.title(f"Density Plot — {col}", fontsize=13, weight='bold')
+        plt.xlabel(col)
+        plt.ylabel("Density")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        hist_path = os.path.join(output_dir, f"density_{col}.png")
+        plt.savefig(hist_path, dpi=200)
+        plt.close()
+        saved_files[f"density_{col}"] = hist_path
 
     # Bar plots for categorical columns
     cat_cols = df.select_dtypes(include='object').columns
