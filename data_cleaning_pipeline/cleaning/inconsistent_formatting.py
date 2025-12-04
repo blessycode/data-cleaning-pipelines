@@ -31,15 +31,20 @@ def clean_inconsistent_formatting(
     cleaned_df = df.copy()
     report = {}
 
-    # 1️ Case normalization for string columns
-    if string_case == 'lower':
-        for col in cleaned_df.select_dtypes(include='object').columns:
-            cleaned_df[col] = cleaned_df[col].map(lambda x: x.lower() if isinstance(x, str) else x)
-    elif string_case == 'upper':
-        for col in cleaned_df.select_dtypes(include='object').columns:
-            cleaned_df[col] = cleaned_df[col].map(lambda x: x.upper() if isinstance(x, str) else x)
+    # -------------------------
+    # 1. Case normalization
+    # -------------------------
+    if string_case in ['lower', 'upper']:
+        str_cols = cleaned_df.select_dtypes(include='object').columns
+        for col in str_cols:
+            cleaned_df[col] = cleaned_df[col].map(lambda x: x.lower() if string_case=='lower' and isinstance(x, str)
+                                                  else x.upper() if string_case=='upper' and isinstance(x, str)
+                                                  else x)
+        report['string_case_normalized'] = list(str_cols)
 
-    # 2️ Replace spaces and special characters in column names
+    # -------------------------
+    # 2. Column name cleaning
+    # -------------------------
     original_cols = cleaned_df.columns.tolist()
     cleaned_cols = cleaned_df.columns
     if replace_spaces:
@@ -49,28 +54,34 @@ def clean_inconsistent_formatting(
     cleaned_df.columns = cleaned_cols
     report['column_name_mapping'] = dict(zip(original_cols, cleaned_cols))
 
-    # 3️ Numeric cleaning with custom regex validation
+    # -------------------------
+    # 3. Numeric cleaning
+    # -------------------------
     if numeric_cleaning:
         converted_columns = []
         for col in cleaned_df.columns:
             if cleaned_df[col].dtype == 'object':
                 cleaned_df[col] = cleaned_df[col].apply(lambda x: x if is_valid_numeric(x) else pd.NA)
                 cleaned_df[col] = pd.to_numeric(cleaned_df[col], errors='coerce')
-                converted_columns.append(col)
+                if cleaned_df[col].dtype in ['float64','int64']:
+                    converted_columns.append(col)
         report['numeric_cleaned_columns'] = converted_columns
 
-    # 4️ Data type cleaning (strip and convert low-cardinality to category)
+    # -------------------------
+    # 4. Low-cardinality string -> category
+    # -------------------------
     if data_clean:
         categorized_columns = []
-        for col in cleaned_df.columns:
-            if cleaned_df[col].dtype == 'object':
-                cleaned_df[col] = cleaned_df[col].str.strip()
-                if cleaned_df[col].nunique() < 0.5 * len(cleaned_df):
-                    cleaned_df[col] = cleaned_df[col].astype('category')
-                    categorized_columns.append(col)
+        for col in cleaned_df.select_dtypes(include='object').columns:
+            cleaned_df[col] = cleaned_df[col].str.strip()
+            if cleaned_df[col].nunique() < 0.5 * len(cleaned_df):
+                cleaned_df[col] = cleaned_df[col].astype('category')
+                categorized_columns.append(col)
         report['converted_to_category'] = categorized_columns
 
-    # 5️ Datetime conversion
+    # -------------------------
+    # 5. Datetime conversion
+    # -------------------------
     if datetime_columns:
         converted = []
         for col in datetime_columns:
@@ -79,7 +90,9 @@ def clean_inconsistent_formatting(
                 converted.append(col)
         report['datetime_converted'] = converted
 
-    # 6 Replace empty strings with NaN
+    # -------------------------
+    # 6. Replace empty strings with NaN
+    # -------------------------
     if replace_empty_with_nan:
         cleaned_df.replace("", pd.NA, inplace=True)
 
