@@ -1,5 +1,3 @@
-# outlier.py
-
 import pandas as pd
 import numpy as np
 from sklearn.covariance import MinCovDet
@@ -50,7 +48,6 @@ def handle_outliers(
 ):
     """
     Handles outliers in a DataFrame using specified method and Grubbs' testing.
-    Returns cleaned DataFrame and a structured report.
     """
 
     report = {'method': method, 'action': action}
@@ -58,24 +55,21 @@ def handle_outliers(
     numeric_cols = cleaned_df.select_dtypes(include='number').columns
 
     outlier_indices = set()
-    column_outliers = {}
 
     if hypothesis_test:
         report['hypothesis_testing'] = {}
         for col in numeric_cols:
             col_outliers = grubbs_test(cleaned_df[col], alpha=significance_level)
-            column_outliers[col] = col_outliers
+            report['hypothesis_testing'][col] = {
+                'n_outliers_detected': len(col_outliers),
+                'outlier_indices': col_outliers
+            }
             outlier_indices.update(col_outliers)
-        report['column_outliers'] = column_outliers
     else:
         if method == 'zscore':
             z_scores = np.abs(stats.zscore(cleaned_df[numeric_cols], nan_policy='omit'))
-            outlier_mask = (z_scores > threshold)
-            row_mask = outlier_mask.any(axis=1)
-            outlier_indices = set(cleaned_df.index[row_mask])
-            for i, col in enumerate(numeric_cols):
-                col_out = cleaned_df.index[outlier_mask[:, i]].tolist()
-                column_outliers[col] = col_out
+            outliers = (z_scores > threshold)
+            outlier_indices = set(np.where(outliers)[0])
 
         elif method == 'iqr':
             Q1 = cleaned_df[numeric_cols].quantile(0.25)
@@ -83,26 +77,21 @@ def handle_outliers(
             IQR = Q3 - Q1
             lower_bound = Q1 - iqr_factor * IQR
             upper_bound = Q3 + iqr_factor * IQR
-            outlier_mask = ((cleaned_df[numeric_cols] < lower_bound) | (cleaned_df[numeric_cols] > upper_bound))
-            row_mask = outlier_mask.any(axis=1)
-            outlier_indices = set(cleaned_df.index[row_mask])
-            for col in numeric_cols:
-                column_outliers[col] = cleaned_df.index[outlier_mask[col]].tolist()
+            outliers = ((cleaned_df[numeric_cols] < lower_bound) | (cleaned_df[numeric_cols] > upper_bound))
+            outlier_indices = set(np.where(outliers.any(axis=1))[0])
 
         elif method == 'mcd':
             mcd = MinCovDet().fit(cleaned_df[numeric_cols].dropna())
             mahal = mcd.mahalanobis(cleaned_df[numeric_cols].fillna(cleaned_df[numeric_cols].median()))
             threshold_val = np.percentile(mahal, mcd_threshold * 100)
-            row_mask = mahal > threshold_val
-            outlier_indices = set(cleaned_df.index[row_mask])
-            for col in numeric_cols:
-                column_outliers[col] = cleaned_df.index[row_mask].tolist()
+            outliers = mahal > threshold_val
+            outlier_indices = set(np.where(outliers)[0])
+
         else:
             raise ValueError(f"Invalid method: {method}")
 
     report['n_outliers_detected'] = len(outlier_indices)
     report['outlier_indices'] = list(outlier_indices)
-    report['column_outliers'] = column_outliers
 
     # Handling based on action
     if action == 'remove':
@@ -114,13 +103,19 @@ def handle_outliers(
             if method == 'iqr':
                 lower = Q1[col] - iqr_factor * IQR[col]
                 upper = Q3[col] + iqr_factor * IQR[col]
-                cleaned_df[col] = np.clip(cleaned_df[col], lower, upper)
+                cleaned_df[col] = np.where(
+                    cleaned_df[col] < lower, lower,
+                    np.where(cleaned_df[col] > upper, upper, cleaned_df[col])
+                )
             elif method == 'zscore':
                 mean = cleaned_df[col].mean()
                 std = cleaned_df[col].std()
                 lower = mean - threshold * std
                 upper = mean + threshold * std
-                cleaned_df[col] = np.clip(cleaned_df[col], lower, upper)
+                cleaned_df[col] = np.where(
+                    cleaned_df[col] < lower, lower,
+                    np.where(cleaned_df[col] > upper, upper, cleaned_df[col])
+                )
             elif method == 'mcd':
                 median_val = cleaned_df[col].median()
                 cleaned_df.loc[list(outlier_indices), col] = median_val
