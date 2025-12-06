@@ -1,3 +1,5 @@
+# profiler.py
+
 import os
 import pandas as pd
 import numpy as np
@@ -16,15 +18,12 @@ def generate_basic_profile(df):
     profile["memory_usage_mb"] = round(df.memory_usage().sum() / (1024**2), 3)
     
     profile["dtypes"] = df.dtypes.apply(lambda x: x.name).to_dict()
-
     profile["missing_count"] = df.isnull().sum().to_dict()
     profile["missing_percent"] = (df.isnull().mean() * 100).round(3).to_dict()
-
     profile["duplicate_rows"] = int(df.duplicated().sum())
     profile["empty_columns"] = df.columns[df.isnull().all()].tolist()
 
     return profile
-
 
 # ----------------------------------------
 # 2. NUMERICAL PROFILE
@@ -57,7 +56,7 @@ def generate_numeric_profile(df):
             stat["normality_pvalue"] = None
             stat["is_normal"] = None
 
-        # Outlier detection
+        # Outlier detection using IQR
         Q1 = col_data.quantile(0.25)
         Q3 = col_data.quantile(0.75)
         IQR = Q3 - Q1
@@ -69,7 +68,6 @@ def generate_numeric_profile(df):
         stats[col] = stat
 
     return stats
-
 
 # ----------------------------------------
 # 3. CATEGORICAL PROFILE
@@ -91,7 +89,6 @@ def generate_categorical_profile(df):
 
     return stats
 
-
 # ----------------------------------------
 # 4. DATETIME PROFILE
 # ----------------------------------------
@@ -109,7 +106,6 @@ def generate_datetime_profile(df):
 
     return stats
 
-
 # ----------------------------------------
 # 5. MIXED TYPE DETECTION
 # ----------------------------------------
@@ -117,14 +113,14 @@ def detect_mixed_types(df):
     mixed = {}
 
     for col in df.columns:
-        unique_types = set(type(x) for x in df[col].dropna().sample(
-            min(len(df), 200), random_state=42
-        ))
+        sample_size = min(len(df), 200)
+        if sample_size == 0:
+            continue
+        unique_types = set(type(x) for x in df[col].dropna().sample(sample_size, random_state=42))
         if len(unique_types) > 1:
-            mixed[col] = list(unique_types)
+            mixed[col] = [t.__name__ for t in unique_types]
 
     return mixed
-
 
 # ----------------------------------------
 # 6. CORRELATION ANALYSIS
@@ -132,15 +128,12 @@ def detect_mixed_types(df):
 def generate_correlations(df):
     correlations = {}
 
-    # Numeric correlations
     num_cols = df.select_dtypes(include=[np.number])
     if num_cols.shape[1] > 1:
         correlations["pearson"] = num_cols.corr(method="pearson").round(4).to_dict()
         correlations["spearman"] = num_cols.corr(method="spearman").round(4).to_dict()
 
-    # High correlation pairs
-    high_corr = []
-    if num_cols.shape[1] > 1:
+        # High correlation pairs
         corr_matrix = num_cols.corr().abs()
         upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
         high_corr = [
@@ -149,26 +142,51 @@ def generate_correlations(df):
             for idx in upper.index
             if pd.notnull(upper.loc[col, idx]) and upper.loc[col, idx] > 0.8
         ]
-
-    correlations["high_correlations"] = high_corr
+        correlations["high_correlations"] = high_corr
 
     return correlations
-
 
 # ----------------------------------------
 # 7. MISSINGNESS PATTERNS
 # ----------------------------------------
 def generate_missingness_patterns(df):
     patterns = {}
-
     patterns["rows_with_missing"] = int(df.isnull().any(axis=1).sum())
     patterns["columns_missing_more_than_50_percent"] = df.columns[df.isnull().mean() > 0.5].tolist()
-
     return patterns
 
+# ----------------------------------------
+# 8. VISUAL PROFILE
+# ----------------------------------------
+def generate_visual_profile(df, output_dir="profiling_reports"):
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Numeric histograms
+    for col in df.select_dtypes(include=[np.number]).columns:
+        plt.figure()
+        df[col].hist(bins=30)
+        plt.title(f'Histogram of {col}')
+        plt.xlabel(col)
+        plt.ylabel("Frequency")
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{col}_hist.png"))
+        plt.close()
+
+    # Categorical barplots
+    for col in df.select_dtypes(include=['object', 'category']).columns:
+        plt.figure()
+        df[col].value_counts().plot(kind='bar')
+        plt.title(f'Barplot of {col}')
+        plt.xlabel(col)
+        plt.ylabel("Count")
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{col}_bar.png"))
+        plt.close()
+
+    return {"message": "Visual profiles saved", "output_dir": output_dir}
 
 # ----------------------------------------
-# 8. FULL PROFILING WRAPPER
+# 9. FULL PROFILING WRAPPER
 # ----------------------------------------
 def generate_full_profile(df):
     return {
@@ -178,5 +196,6 @@ def generate_full_profile(df):
         "datetime_profile": generate_datetime_profile(df),
         "mixed_types": detect_mixed_types(df),
         "correlations": generate_correlations(df),
-        "missingness_patterns": generate_missingness_patterns(df)
+        "missingness_patterns": generate_missingness_patterns(df),
+        "visual_profile": generate_visual_profile(df)
     }

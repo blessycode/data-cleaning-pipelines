@@ -90,12 +90,13 @@ class DataConverter(BaseEstimator, TransformerMixin):
         for name, transformer, columns in self.pipeline.transformers_:
             if name == 'remainder' and self.remainder == 'passthrough':
                 if transformer == 'passthrough':
-                    feature_names.extend([col for col in X.columns if col not in self.categorical_features + self.numerical_features])
+                    feature_names.extend([col for col in X.columns 
+                                          if col not in self.categorical_features + self.numerical_features])
                 continue
             elif name == 'drop':
                 continue
 
-            # Get feature names from transformer
+            # Extract names from pipeline transformer
             if isinstance(transformer, Pipeline):
                 encoder = transformer.named_steps.get('encoder')
                 if encoder:

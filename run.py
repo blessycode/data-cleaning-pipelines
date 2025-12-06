@@ -1,7 +1,7 @@
 from data_cleaning_pipeline.pipeline import clean_data
 
 # Replace with your dataset path
-data_source = r"C:\Users\blessycode\projects\data-cleaning-pipelines\Housing.csv"
+data_source = r"C:\Users\blessycode\Documents\home-credit-default-risk\application_train.csv"
 file_type = "csv"  # csv, excel, sql
 
 # Run the pipeline
