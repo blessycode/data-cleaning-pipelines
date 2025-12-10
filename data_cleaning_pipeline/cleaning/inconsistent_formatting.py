@@ -1,6 +1,16 @@
+"""
+Enhanced Inconsistent Formatting Module
+Comprehensive formatting standardization and cleaning
+"""
+
 import pandas as pd
 import numpy as np
 import re
+from typing import Dict, List, Optional, Tuple, Any
+import warnings
+
+warnings.filterwarnings('ignore')
+
 
 def is_valid_numeric(value):
     """
@@ -11,20 +21,23 @@ def is_valid_numeric(value):
         return False
     return re.match(r'^-?\d+(\.\d+)?$', str(value).strip()) is not None
 
-def clean_inconsistent_formatting(
-    df,
-    string_case='lower',       # 'lower', 'upper', None
-    replace_spaces=True,
-    replace_special=True,
-    numeric_cleaning=True,
-    data_clean=True,
-    datetime_columns=None,
-    replace_empty_with_nan=True,
-    verbose: bool = False
-):
-    """
-    Cleans inconsistent formatting in a DataFrame for pipeline readiness.
 
+def clean_inconsistent_formatting(
+    df: pd.DataFrame,
+    string_case: str = 'lower',       # 'lower', 'upper', None
+    replace_spaces: bool = True,
+    replace_special: bool = True,
+    numeric_cleaning: bool = True,
+    data_clean: bool = True,
+    datetime_columns: Optional[List[str]] = None,
+    replace_empty_with_nan: bool = True,
+    trim_whitespace: bool = True,
+    normalize_unicode: bool = True,
+    verbose: bool = True
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Enhanced inconsistent formatting cleaning with comprehensive options
+    
     Parameters:
     -----------
     df : pd.DataFrame
@@ -32,33 +45,38 @@ def clean_inconsistent_formatting(
     string_case : str
         Case normalization: 'lower', 'upper', or None
     replace_spaces : bool
-        Replace spaces in column names with underscores
+        Replace spaces in column names
     replace_special : bool
         Replace special characters in column names
     numeric_cleaning : bool
-        Attempt to convert string numbers to numeric
+        Convert string numbers to numeric types
     data_clean : bool
-        Clean data values and convert low-cardinality strings to categories
+        Perform additional data cleaning (strip, categorize)
     datetime_columns : list, optional
-        List of column names to convert to datetime
+        List of columns to convert to datetime
     replace_empty_with_nan : bool
         Replace empty strings with NaN
+    trim_whitespace : bool
+        Trim whitespace from string values
+    normalize_unicode : bool
+        Normalize unicode characters
     verbose : bool
         Whether to print progress messages
-
+        
     Returns:
     --------
     cleaned_df : pd.DataFrame
         Cleaned DataFrame
     report : dict
-        Detailed cleaning report
+        Comprehensive cleaning report
     """
+    if verbose:
+        print(f"🧹 Cleaning inconsistent formatting in {len(df.columns)} columns...")
+    
     cleaned_df = df.copy()
-    initial_shape = cleaned_df.shape
     report = {
-        'operation': 'inconsistent_formatting',
-        'initial_shape': initial_shape,
-        'columns_processed': list(cleaned_df.columns)
+        'operation': 'inconsistent_formatting_cleaning',
+        'columns_processed': len(df.columns)
     }
 
     # -------------------------
@@ -67,10 +85,19 @@ def clean_inconsistent_formatting(
     if string_case in ['lower', 'upper']:
         str_cols = cleaned_df.select_dtypes(include='object').columns
         for col in str_cols:
-            cleaned_df[col] = cleaned_df[col].map(lambda x: x.lower() if string_case=='lower' and isinstance(x, str)
-                                                  else x.upper() if string_case=='upper' and isinstance(x, str)
-                                                  else x)
-        report['string_case_normalized'] = list(str_cols)
+            if string_case == 'lower':
+                cleaned_df[col] = cleaned_df[col].apply(
+                    lambda x: x.lower() if isinstance(x, str) else x
+                )
+            elif string_case == 'upper':
+                cleaned_df[col] = cleaned_df[col].apply(
+                    lambda x: x.upper() if isinstance(x, str) else x
+                )
+        report['string_case_normalized'] = {
+            'columns': list(str_cols),
+            'case': string_case,
+            'count': len(str_cols)
+        }
 
     # -------------------------
     # 2. Column name cleaning
@@ -98,48 +125,97 @@ def clean_inconsistent_formatting(
         report['numeric_cleaned_columns'] = converted_columns
 
     # -------------------------
-    # 4. Low-cardinality string -> category
+    # 4. Trim whitespace and normalize
+    # -------------------------
+    if trim_whitespace:
+        trimmed_columns = []
+        for col in cleaned_df.select_dtypes(include='object').columns:
+            before = cleaned_df[col].astype(str).str.len().sum()
+            cleaned_df[col] = cleaned_df[col].astype(str).str.strip()
+            after = cleaned_df[col].str.len().sum()
+            if before != after:
+                trimmed_columns.append(col)
+        report['whitespace_trimmed'] = {
+            'columns': trimmed_columns,
+            'count': len(trimmed_columns)
+        }
+    
+    # -------------------------
+    # 5. Unicode normalization
+    # -------------------------
+    if normalize_unicode:
+        try:
+            import unicodedata
+            normalized_columns = []
+            for col in cleaned_df.select_dtypes(include='object').columns:
+                cleaned_df[col] = cleaned_df[col].apply(
+                    lambda x: unicodedata.normalize('NFKD', str(x)) if isinstance(x, str) else x
+                )
+                normalized_columns.append(col)
+            report['unicode_normalized'] = {
+                'columns': normalized_columns,
+                'count': len(normalized_columns)
+            }
+        except ImportError:
+            if verbose:
+                print("  ⚠️  unicodedata not available, skipping unicode normalization")
+    
+    # -------------------------
+    # 6. Low-cardinality string -> category
     # -------------------------
     if data_clean:
         categorized_columns = []
         for col in cleaned_df.select_dtypes(include='object').columns:
-            cleaned_df[col] = cleaned_df[col].str.strip()
-            if cleaned_df[col].nunique() < 0.5 * len(cleaned_df):
+            if cleaned_df[col].nunique() < 0.5 * len(cleaned_df) and cleaned_df[col].nunique() > 0:
                 cleaned_df[col] = cleaned_df[col].astype('category')
                 categorized_columns.append(col)
-        report['converted_to_category'] = categorized_columns
+        report['converted_to_category'] = {
+            'columns': categorized_columns,
+            'count': len(categorized_columns)
+        }
 
     # -------------------------
-    # 5. Datetime conversion
+    # 7. Datetime conversion
     # -------------------------
     if datetime_columns:
         converted = []
+        failed = []
         for col in datetime_columns:
             if col in cleaned_df.columns:
-                cleaned_df[col] = pd.to_datetime(cleaned_df[col], errors='coerce')
-                converted.append(col)
-        report['datetime_converted'] = converted
+                try:
+                    before_type = str(cleaned_df[col].dtype)
+                    cleaned_df[col] = pd.to_datetime(cleaned_df[col], errors='coerce')
+                    after_type = str(cleaned_df[col].dtype)
+                    if before_type != after_type:
+                        converted.append(col)
+                except Exception as e:
+                    failed.append({'column': col, 'error': str(e)})
+        report['datetime_converted'] = {
+            'successful': converted,
+            'failed': failed,
+            'count': len(converted)
+        }
 
     # -------------------------
-    # 6. Replace empty strings with NaN
+    # 8. Replace empty strings with NaN
     # -------------------------
-    empty_strings_replaced = 0
     if replace_empty_with_nan:
-        for col in cleaned_df.columns:
-            empty_count = (cleaned_df[col] == "").sum()
-            if empty_count > 0:
-                empty_strings_replaced += empty_count
+        empty_count_before = (cleaned_df == "").sum().sum()
         cleaned_df.replace("", pd.NA, inplace=True)
-        report['empty_strings_replaced'] = int(empty_strings_replaced)
+        empty_count_after = (cleaned_df == "").sum().sum()
+        report['empty_strings_replaced'] = {
+            'before': int(empty_count_before),
+            'after': int(empty_count_after),
+            'replaced': int(empty_count_before - empty_count_after)
+        }
     
-    # Final statistics
-    report['final_shape'] = cleaned_df.shape
-    report['rows_changed'] = initial_shape[0] != cleaned_df.shape[0]
-    report['columns_changed'] = len(report.get('column_name_mapping', {}))
+    # Summary
+    report['summary'] = {
+        'total_operations': len([k for k in report.keys() if k != 'operation' and k != 'summary' and k != 'columns_processed']),
+        'final_shape': {'rows': len(cleaned_df), 'columns': len(cleaned_df.columns)}
+    }
     
     if verbose:
-        print(f"  ✓ Formatted {len(report.get('string_case_normalized', []))} string columns")
-        print(f"  ✓ Cleaned {len(report.get('numeric_cleaned_columns', []))} numeric columns")
-        print(f"  ✓ Converted {len(report.get('converted_to_category', []))} columns to category")
+        print(f"✓ Formatting cleaned: {report['summary']['total_operations']} operations completed")
 
     return cleaned_df, report
