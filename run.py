@@ -1,11 +1,20 @@
 from data_cleaning_pipeline.pipe import clean_data
-
+import os
 # Replace with your dataset path
 data_source = r"C:\Users\blessycode\Downloads\Healthcare.csv"
 file_type = "csv"  # csv, excel, sql
 
-# Run the pipeline (now returns 3 values)
-cleaned_df, reports, output_files = clean_data(data_source, file_type=file_type)
+# Run the pipeline WITH VISUALIZATIONS ENABLED
+cleaned_df, reports, output_files = clean_data(
+    data_source,
+    file_type=file_type,
+    profile_data=True,
+    include_visuals=True,  # ✅ This enables visualizations
+    columns_to_plot=['age', 'symptom_count', 'disease', 'gender'],  # ✅ Specify columns to plot
+    save_output=True,
+    output_dir="data_pipeline_output",
+    show_detailed_profile=True
+)
 
 # Check results
 if cleaned_df is not None:
@@ -43,7 +52,7 @@ if cleaned_df is not None:
             print(f"  📂 {file_type.capitalize()}: {len(files)} file(s)")
             # Show first 3 files of each type
             for i, file in enumerate(files[:3]):
-                print(f"    {i + 1}. {file}")
+                print(f"    {i + 1}. {os.path.basename(file)}")
             if len(files) > 3:
                 print(f"    ... and {len(files) - 3} more")
 
@@ -54,6 +63,18 @@ if cleaned_df is not None:
         print(f"\n💾 Cleaned data saved to: {output_path}")
     except Exception as e:
         print(f"\n⚠️  Could not save cleaned data: {str(e)}")
+
+    # Check if visualizations were generated
+    if 'profiling' in reports and 'visualizations' in reports['profiling']:
+        viz = reports['profiling']['visualizations']
+        print("\n🎨 VISUALIZATIONS GENERATED:")
+        for viz_type, viz_data in viz.items():
+            if isinstance(viz_data, dict):
+                print(f"  • {viz_type}: {len(viz_data)} plots")
+            else:
+                print(f"  • {viz_type}: 1 plot")
+    else:
+        print("\n⚠️  No visualizations were generated. Check if columns_to_plot matches your dataset columns.")
 
 else:
     print("\n❌ PIPELINE FAILED")
@@ -114,32 +135,9 @@ for step, report in reports.items():
         else:
             print(f"  ✓ Data quality: Good")
 
-# Display quick statistics from profiling if available
-if 'profiling' in reports:
-    print("\n" + "=" * 60)
-    print("📈 QUICK STATISTICS")
-    print("=" * 60)
-
-    profile = reports['profiling']
-    numerical = profile.get("numerical", {})
-    categorical = profile.get("categorical", {})
-
-    if numerical:
-        print("\n🔢 NUMERICAL COLUMNS (Sample):")
-        for col, stats in list(numerical.items())[:3]:  # Show first 3
-            print(f"  • {col}:")
-            print(f"    Mean: {stats.get('mean', 'N/A'):.2f}")
-            print(f"    Std: {stats.get('std', 'N/A'):.2f}")
-            print(f"    Range: {stats.get('range', 'N/A'):.2f}")
-
-    if categorical:
-        print("\n🏷️  CATEGORICAL COLUMNS (Sample):")
-        for col, stats in list(categorical.items())[:3]:  # Show first 3
-            print(f"  • {col}:")
-            print(f"    Unique values: {stats.get('unique_count', 'N/A')}")
-            dominant_pct = stats.get('distribution', {}).get('dominant_percent', 0)
-            if dominant_pct > 50:
-                print(f"    Top category: {dominant_pct:.1f}%")
+        # Show visualization info
+        if 'visualizations' in report:
+            print(f"  🎨 Visualizations: {len(report['visualizations'])} types generated")
 
 print("\n" + "=" * 60)
 print("✨ PIPELINE EXECUTION COMPLETE")
