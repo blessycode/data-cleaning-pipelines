@@ -35,9 +35,9 @@ cleaned_df, reports, output_files = clean_data(
     use_advanced_outlier_handler=False,  # Set to True to use advanced OutlierHandler
     enable_feature_suggestions=True,  # ✅ Set to True to get AI-based feature engineering suggestions
     target_column=None,  # Optional: specify target column for supervised learning suggestions
-    clean_column_names=True,  # ✅ Clean column names (lowercase, replace spaces/special chars)
+    clean_column_names_flag=True,  # ✅ Clean and standardize column names
     validate_final_data=True,  # ✅ Perform final data validation
-    export_formats=['csv', 'excel', 'json']  # ✅ Export formats: csv, excel, json, parquet, html
+    export_formats=['csv', 'excel', 'parquet']  # ✅ Export formats: csv, excel, parquet, json, pickle, html
 )
 
 # Check results
@@ -278,42 +278,6 @@ for step, report in reports.items():
         if 'visualizations' in report:
             print(f"  🎨 Visualizations: {len(report['visualizations'])} types generated")
 
-    elif step == "column_cleaning":
-        print(f"  Status: ✅ Completed")
-        
-        columns_changed = report.get("columns_changed", 0)
-        duplicates_fixed = len(report.get("duplicates_fixed", {}))
-        
-        if columns_changed > 0:
-            print(f"  Columns modified: {columns_changed}")
-            if duplicates_fixed > 0:
-                print(f"  Duplicate column names fixed: {duplicates_fixed}")
-        else:
-            print(f"  ✓ Column names already clean")
-
-    elif step == "final_validation":
-        print(f"  Status: ✅ Completed")
-        
-        if "error" in report:
-            print(f"  Error: {report.get('error')}")
-        else:
-            score = report.get("data_quality_score", 0)
-            status = report.get("validation_status", "unknown")
-            print(f"  Data Quality Score: {score}/100 ({status.upper()})")
-            
-            # Show key issues
-            schema = report.get("schema_validation", {})
-            if schema.get("columns_missing"):
-                print(f"  ⚠️  Missing columns: {len(schema['columns_missing'])}")
-            
-            null_val = report.get("null_validation", {})
-            if null_val.get("high_null_columns"):
-                print(f"  ⚠️  High null columns: {len(null_val['high_null_columns'])}")
-            
-            uniqueness = report.get("uniqueness_validation", {})
-            if uniqueness.get("duplicate_rows", 0) > 0:
-                print(f"  ⚠️  Duplicate rows: {uniqueness['duplicate_rows']}")
-
     elif step == "feature_engineering":
         print(f"  Status: ✅ Completed")
         
@@ -344,6 +308,54 @@ for step, report in reports.items():
                 print(f"  Quick Wins:")
                 for win in quick_wins[:3]:
                     print(f"    • {win}")
+
+    elif step == "column_cleaning":
+        print(f"  Status: ✅ Completed")
+        
+        if "error" in report:
+            print(f"  Error: {report.get('error')}")
+        else:
+            total_columns = report.get("total_columns", 0)
+            columns_changed = report.get("columns_changed", 0)
+            print(f"  Total columns: {total_columns}")
+            print(f"  Columns modified: {columns_changed}")
+            
+            duplicates_fixed = report.get("duplicates_fixed", [])
+            if duplicates_fixed:
+                print(f"  Duplicate names resolved: {len(duplicates_fixed)}")
+            
+            changes = report.get("changes_made", [])
+            if changes:
+                print(f"  Sample changes:")
+                for change in changes[:3]:
+                    print(f"    • {change}")
+
+    elif step == "final_validation":
+        print(f"  Status: ✅ Completed")
+        
+        if "error" in report:
+            print(f"  Error: {report.get('error')}")
+        else:
+            summary = report.get("summary", {})
+            status = summary.get("overall_status", "UNKNOWN")
+            score = summary.get("validation_score", 0)
+            total_issues = summary.get("total_issues", 0)
+            
+            print(f"  Overall Status: {status}")
+            print(f"  Validation Score: {score}/100")
+            print(f"  Total Issues: {total_issues}")
+            
+            critical = summary.get("critical_issues", [])
+            if critical:
+                print(f"  Critical Issues:")
+                for issue in critical[:3]:
+                    print(f"    • {issue}")
+            
+            warnings_list = summary.get("warnings", [])
+            if warnings_list:
+                print(f"  Warnings:")
+                for warning in warnings_list[:3]:
+                    print(f"    • {warning}")
 
 print("\n" + "=" * 60)
 print("✨ PIPELINE EXECUTION COMPLETE")

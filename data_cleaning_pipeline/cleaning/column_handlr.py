@@ -1,13 +1,28 @@
-# column_handler.py
+"""
+Enhanced Column Handler Module
+Comprehensive column name cleaning and standardization
+"""
 
 import pandas as pd
 import re
+from typing import Dict, List, Optional, Tuple, Any
+import warnings
 
-def clean_column_names(df, lowercase=True, replace_spaces=True, replace_special=True, 
-                       ensure_unique=True, verbose: bool = False):
+warnings.filterwarnings('ignore')
+
+
+def clean_column_names(df: pd.DataFrame, 
+                       lowercase: bool = True,
+                       replace_spaces: bool = True,
+                       replace_special: bool = True,
+                       ensure_unique: bool = True,
+                       max_length: Optional[int] = None,
+                       prefix: Optional[str] = None,
+                       suffix: Optional[str] = None,
+                       verbose: bool = True) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Cleans column names in a DataFrame for consistency and pipeline safety.
-
+    Enhanced column name cleaning with comprehensive options
+    
     Parameters:
     -----------
     df : pd.DataFrame
@@ -20,71 +35,109 @@ def clean_column_names(df, lowercase=True, replace_spaces=True, replace_special=
         Whether to replace special characters with underscores
     ensure_unique : bool
         Whether to ensure unique column names by appending suffixes
+    max_length : int, optional
+        Maximum length for column names (truncate if longer)
+    prefix : str, optional
+        Prefix to add to all column names
+    suffix : str, optional
+        Suffix to add to all column names
     verbose : bool
         Whether to print progress messages
-
+        
     Returns:
     --------
     cleaned_df : pd.DataFrame
         DataFrame with cleaned column names
     report : dict
-        Mapping of original to cleaned column names and duplicates
+        Comprehensive report on column name changes
     """
-    if df is None or df.empty:
-        return df, {'error': 'Empty DataFrame provided'}
+    if verbose:
+        print(f"🔧 Cleaning {len(df.columns)} column names...")
     
     cleaned_df = df.copy()
     original_columns = cleaned_df.columns.tolist()
     cleaned_columns = []
-    report = {
-        'operation': 'column_name_cleaning',
-        'initial_columns': original_columns,
-        'settings': {
-            'lowercase': lowercase,
-            'replace_spaces': replace_spaces,
-            'replace_special': replace_special,
-            'ensure_unique': ensure_unique
-        }
-    }
-
+    changes_made = []
+    
     for col in original_columns:
-        new_col = col.strip()
+        new_col = str(col).strip()
+        original_col = new_col
+        
+        # Apply transformations
         if lowercase:
             new_col = new_col.lower()
+        
         if replace_spaces:
             new_col = new_col.replace(" ", "_")
+            # Replace multiple spaces/underscores with single underscore
+            new_col = re.sub(r'[_\s]+', '_', new_col)
+        
         if replace_special:
+            # Replace special characters but keep alphanumeric, underscore, and hyphen
             new_col = re.sub(r'[^A-Za-z0-9_\-]', '_', new_col)
+            # Remove leading/trailing underscores
+            new_col = new_col.strip('_')
+        
+        # Truncate if max_length specified
+        if max_length and len(new_col) > max_length:
+            new_col = new_col[:max_length]
+            changes_made.append(f"{original_col} -> truncated to {max_length} chars")
+        
+        # Add prefix/suffix
+        if prefix:
+            new_col = f"{prefix}{new_col}"
+        if suffix:
+            new_col = f"{new_col}{suffix}"
+        
+        # Track changes
+        if new_col != original_col:
+            changes_made.append(f"{original_col} -> {new_col}")
+        
         cleaned_columns.append(new_col)
-
+    
+    # Ensure uniqueness
     if ensure_unique:
         seen = {}
+        duplicates_found = []
         for i, col in enumerate(cleaned_columns):
             if col in seen:
                 seen[col] += 1
                 cleaned_columns[i] = f"{col}_{seen[col]}"
+                duplicates_found.append({
+                    'original': original_columns[i],
+                    'duplicate_of': col,
+                    'renamed_to': cleaned_columns[i]
+                })
             else:
                 seen[col] = 0
-
+    else:
+        duplicates_found = []
+    
+    # Apply cleaned column names
     cleaned_df.columns = cleaned_columns
     
-    # Build comprehensive report
-    column_mapping = dict(zip(original_columns, cleaned_columns))
-    changed_columns = {orig: new for orig, new in column_mapping.items() if orig != new}
-    
-    report['original_to_cleaned'] = column_mapping
-    report['duplicates_fixed'] = {col: count for col, count in seen.items() if count > 0} if ensure_unique else {}
-    report['columns_changed'] = len(changed_columns)
-    report['columns_renamed'] = changed_columns
-    report['final_columns'] = cleaned_columns
-    report['columns_modified'] = len(changed_columns) > 0
+    # Generate report
+    report = {
+        'operation': 'column_name_cleaning',
+        'total_columns': len(original_columns),
+        'columns_changed': len(changes_made),
+        'original_to_cleaned': dict(zip(original_columns, cleaned_columns)),
+        'changes_made': changes_made,
+        'duplicates_fixed': duplicates_found,
+        'settings': {
+            'lowercase': lowercase,
+            'replace_spaces': replace_spaces,
+            'replace_special': replace_special,
+            'ensure_unique': ensure_unique,
+            'max_length': max_length,
+            'prefix': prefix,
+            'suffix': suffix
+        }
+    }
     
     if verbose:
-        if changed_columns:
-            print(f"  ✓ Cleaned {len(changed_columns)} column names")
-            if report['duplicates_fixed']:
-                print(f"  ✓ Fixed {len(report['duplicates_fixed'])} duplicate column names")
-        else:
-            print(f"  ✓ Column names already clean")
-
+        print(f"✓ Column names cleaned: {len(changes_made)} columns modified")
+        if duplicates_found:
+            print(f"  • {len(duplicates_found)} duplicate names resolved")
+    
     return cleaned_df, report
