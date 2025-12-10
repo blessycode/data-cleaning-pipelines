@@ -1,0 +1,65 @@
+{
+  "basic": {
+    "dataset_info": {
+      "total_rows": 25000,
+      "total_columns": 6,
+      "memory_usage_mb": 6.29
+    },
+    "missing_values": {
+      "total_missing": 0,
+      "total_missing_percent": 0.0,
+      "columns_with_missing": {},
+      "missing_percentage_by_column": {
+        "patient_id": 0.0,
+        "age": 0.0,
+        "gender": 0.0,
+        "symptoms": 0.0,
+        "symptom_count": 0.0,
+        "disease": 0.0
+      }
+    },
+    "duplicates": {
+      "duplicate_rows": 0,
+      "duplicate_percent": 0.0
+    },
+    "empty_columns": [],
+    "data_types": {
+      "int64": 3,
+      "object": 3
+    }
+  },
+  "numerical": {
+    "patient_id": {
+      "count": 25000,
+      "missing": 0,
+      "missing_percent": 0.0,
+      "zeros": 0,
+      "zero_percent": 0.0,
+      "mean": 12500.5,
+      "median": 12500.5,
+      "mode": 1.0,
+      "std": 7217.022701,
+      "variance": 52085416.666667,
+      "range": 24999.0,
+      "iqr": 12499.5,
+      "cv": 0.577339,
+      "min": 1.0,
+      "5th": 1250.95,
+      "25th": 6250.75,
+      "50th": 12500.5,
+      "75th": 18750.25,
+      "95th": 23750.05,
+      "max": 25000.0,
+      "skewness": 0.0,
+      "kurtosis": -1.2,
+      "is_normal": null,
+      "normality_pvalue": null,
+      "shapiro_pvalue": null,
+      "outliers": {
+        "iqr_method": 0,
+        "iqr_percent": 0.0,
+        "z_score_method": 0,
+        "z_score_percent": 0.0
+      },
+      "quality_flags": {
+        "high_missing": 
