@@ -14,6 +14,14 @@ file_type = "csv"  # csv, excel, sql
 #       'duplicate_kwargs': {'method': 'remove'},
 #       'outlier_kwargs': {'method': 'iqr', 'handle_action': 'cap'}
 #   }
+#   use_advanced_outlier_handler=True,  # Use advanced OutlierHandler class
+#   outlier_config={  # Advanced outlier handler configuration
+#       'method': 'iqr',  # 'iqr', 'zscore', 'mcd'
+#       'action': 'flag',  # 'remove', 'cap', 'flag', 'winsorize'
+#       'threshold': 3.0,
+#       'iqr_factor': 1.5,
+#       'multivariate_methods': False
+#   }
 cleaned_df, reports, output_files = clean_data(
     data_source,
     file_type=file_type,
@@ -23,7 +31,8 @@ cleaned_df, reports, output_files = clean_data(
     save_output=True,
     output_dir="data_pipeline_output",
     show_detailed_profile=True,
-    apply_cleaning=True  # ✅ Data cleaning enabled (uses DataCleaner class)
+    apply_cleaning=True,  # ✅ Data cleaning enabled (uses DataCleaner class)
+    use_advanced_outlier_handler=False  # Set to True to use advanced OutlierHandler
 )
 
 # Check results
@@ -48,6 +57,26 @@ if cleaned_df is not None:
     duplicates = cleaned_df.duplicated().sum()
     duplicate_percentage = (duplicates / cleaned_df.shape[0] * 100)
     print(f"  • Duplicate rows: {duplicates:,} ({duplicate_percentage:.2f}%)")
+    
+    # Show outlier information if available in reports
+    if 'cleaning' in reports:
+        cleaning_report = reports['cleaning']
+        step_reports = cleaning_report.get("step_reports", {})
+        if "outliers" in step_reports:
+            outlier_report = step_reports["outliers"]
+            total_outliers = outlier_report.get("total_outliers_detected", 0)
+            if total_outliers > 0:
+                print(f"  • Outliers detected: {total_outliers:,} (see cleaning report for details)")
+            else:
+                print(f"  • Outliers: None detected")
+    
+    # Show advanced outlier information if used
+    if 'advanced_outlier_handling' in reports:
+        outlier_report = reports['advanced_outlier_handling']
+        handling = outlier_report.get("handling", {})
+        n_outliers = handling.get("n_outliers_detected", 0)
+        if n_outliers > 0:
+            print(f"  • Advanced outlier handling: {n_outliers:,} outliers detected")
 
     # Show column types
     print("\n📊 COLUMN TYPES:")
@@ -156,8 +185,58 @@ for step, report in reports.items():
                         print(f"    • Duplicates: {dup_count} rows handled")
                 elif step_name == "outliers":
                     total_outliers = step_report.get("total_outliers_detected", 0)
-                    if total_outliers > 0:
-                        print(f"    • Outliers: {total_outliers} detected")
+                    method = step_report.get("method", "unknown")
+                    handle_action = step_report.get("handle_action", "detect_only")
+                    
+                    print(f"    • Outliers: {total_outliers} detected (method: {method}, action: {handle_action})")
+                    
+                    # Show detailed outlier information by column
+                    outlier_details = step_report.get("outlier_details", {})
+                    if outlier_details:
+                        print(f"      Outliers by column:")
+                        for col, details in list(outlier_details.items())[:5]:  # Show first 5 columns
+                            count = details.get("outlier_count", 0)
+                            pct = details.get("outlier_percentage", 0)
+                            lower = details.get("lower_bound", "N/A")
+                            upper = details.get("upper_bound", "N/A")
+                            print(f"        - {col}: {count} outliers ({pct:.1f}%) [bounds: {lower} to {upper}]")
+                        if len(outlier_details) > 5:
+                            print(f"        ... and {len(outlier_details) - 5} more columns with outliers")
+                    elif total_outliers == 0:
+                        print(f"      ✓ No outliers detected in any column")
+
+    elif step == "advanced_outlier_handling":
+        print(f"  Status: ✅ Completed")
+        
+        handling = report.get("handling", {})
+        detection = report.get("detection", {})
+        config = report.get("config", {})
+        
+        # Show method and action
+        method = handling.get("method", "unknown")
+        action = handling.get("action", "unknown")
+        print(f"  Method: {method} | Action: {action}")
+        
+        # Show outliers detected
+        n_outliers = handling.get("n_outliers_detected", 0)
+        if n_outliers > 0:
+            print(f"  Outliers detected: {n_outliers}")
+            
+            # Show details by column
+            outlier_details = handling.get("outlier_details", {})
+            if outlier_details:
+                print(f"  Outliers by column:")
+                for col, details in list(outlier_details.items())[:5]:  # Show first 5
+                    count = details.get("count", 0)
+                    print(f"    • {col}: {count} outliers")
+                if len(outlier_details) > 5:
+                    print(f"    ... and {len(outlier_details) - 5} more columns")
+        
+        # Show detection summary
+        if detection:
+            summary = detection.get("summary", {})
+            if summary:
+                print(f"  Columns analyzed: {summary.get('n_columns', 'N/A')}")
 
     elif step == "profiling":
         summary = report.get("summary", {})

@@ -1,6 +1,7 @@
 from data_cleaning_pipeline.utils import ingestion
 from data_cleaning_pipeline.cleaning import profiling
 from data_cleaning_pipeline.cleaning.missing import DataCleaner
+from data_cleaning_pipeline.cleaning.outlier_handler import OutlierHandler, OutlierConfig
 import pandas as pd
 import os
 import json
@@ -267,6 +268,28 @@ def pretty_print_profiling_report(profile: Dict[str, Any], show_details: bool = 
         print_test_result("Duplicate Rows", "WARNING", f"{duplicate_pct:.1f}% duplicates")
     else:
         print_test_result("Duplicate Rows", "PASS", f"{duplicate_pct:.1f}% duplicates")
+    
+    # Outliers test (from numerical analysis)
+    numerical = profile.get("numerical", {})
+    if numerical:
+        total_outlier_pct = 0
+        high_outlier_cols = []
+        for col, stats in numerical.items():
+            outlier_pct = stats.get('outliers', {}).get('iqr_percent', 0)
+            total_outlier_pct += outlier_pct
+            if outlier_pct > 10:
+                high_outlier_cols.append(f"{col} ({outlier_pct:.1f}%)")
+        
+        avg_outlier_pct = total_outlier_pct / len(numerical) if len(numerical) > 0 else 0
+        if avg_outlier_pct > 10:
+            outlier_msg = f"{avg_outlier_pct:.1f}% avg outliers"
+            if high_outlier_cols:
+                outlier_msg += f" - High in: {', '.join(high_outlier_cols[:2])}"
+            print_test_result("Outliers", "WARNING", outlier_msg)
+        elif avg_outlier_pct > 5:
+            print_test_result("Outliers", "WARNING", f"{avg_outlier_pct:.1f}% average outliers detected")
+        else:
+            print_test_result("Outliers", "PASS", f"{avg_outlier_pct:.1f}% average outliers (acceptable)")
 
     # Empty columns test
     empty_cols = basic.get("empty_columns", [])
@@ -420,6 +443,8 @@ def clean_data(
         apply_cleaning: bool = True,
         cleaning_steps: Optional[list] = None,
         cleaning_kwargs: Optional[Dict[str, Any]] = None,
+        use_advanced_outlier_handler: bool = False,
+        outlier_config: Optional[Dict[str, Any]] = None,
         **kwargs
 ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Dict[str, Any]]:
     """
@@ -460,6 +485,22 @@ def clean_data(
             'outlier_kwargs': {'method': 'iqr', 'handle_action': 'detect_only', ...},
             'inconsistent_kwargs': {},
             'normalize_kwargs': {'method': 'none', ...}
+        }
+    use_advanced_outlier_handler : bool
+        Whether to use the advanced OutlierHandler class instead of DataCleaner's basic outlier handling
+        Default: False
+    outlier_config : dict, optional
+        Configuration for OutlierHandler. Structure:
+        {
+            'method': 'iqr',  # 'iqr', 'zscore', 'mcd'
+            'action': 'flag',  # 'remove', 'cap', 'flag', 'winsorize'
+            'threshold': 3.0,
+            'iqr_factor': 1.5,
+            'mcd_threshold': 0.975,
+            'hypothesis_test': False,
+            'significance_level': 0.05,
+            'multivariate_methods': False,
+            'contamination': 0.1
         }
     **kwargs : additional arguments for ingestion
 
@@ -570,10 +611,16 @@ def clean_data(
                 if isinstance(default_value, dict) and isinstance(cleaning_kwargs[key], dict):
                     cleaning_kwargs[key] = {**default_value, **cleaning_kwargs[key]}
         
+        # If using advanced outlier handler, remove 'outliers' from steps to avoid double processing
+        steps_for_cleaner = cleaning_steps.copy() if cleaning_steps else ['missing', 'duplicates', 'outliers', 'inconsistent']
+        if use_advanced_outlier_handler and 'outliers' in steps_for_cleaner:
+            steps_for_cleaner.remove('outliers')
+            print("📌 Using advanced OutlierHandler - skipping basic outlier handling in DataCleaner")
+        
         # Execute cleaning steps
         cleaned_df, cleaning_report = cleaner.clean_all(
             df=df,
-            steps=cleaning_steps,
+            steps=steps_for_cleaner,
             **cleaning_kwargs
         )
         
@@ -581,6 +628,60 @@ def clean_data(
         
         # Update df to cleaned version
         df = cleaned_df
+        
+        # Apply advanced outlier handling if requested
+        if use_advanced_outlier_handler:
+            print("\n🔄 Applying Advanced Outlier Handler...")
+            
+            # Prepare outlier configuration
+            if outlier_config is None:
+                outlier_config = {
+                    'method': 'iqr',
+                    'action': 'flag',
+                    'threshold': 3.0,
+                    'iqr_factor': 1.5,
+                    'mcd_threshold': 0.975,
+                    'hypothesis_test': False,
+                    'significance_level': 0.05,
+                    'multivariate_methods': False,
+                    'contamination': 0.1
+                }
+            
+            # Create OutlierConfig
+            config = OutlierConfig(**outlier_config)
+            
+            # Initialize and use OutlierHandler
+            outlier_handler = OutlierHandler(config=config)
+            
+            # Detect outliers first
+            detection_report = outlier_handler.detect_outliers(df)
+            
+            # Handle outliers
+            cleaned_df, outlier_report = outlier_handler.handle_outliers(df)
+            
+            # Combine reports
+            advanced_outlier_report = {
+                'operation': 'advanced_outlier_handling',
+                'detection': detection_report,
+                'handling': outlier_report.get('handling', {}),
+                'config': outlier_config
+            }
+            
+            reports["advanced_outlier_handling"] = advanced_outlier_report
+            df = cleaned_df
+            
+            # Save advanced outlier report
+            if save_output:
+                outlier_file = save_report_to_json(
+                    advanced_outlier_report,
+                    directories["reports"],
+                    f"{base_name}_advanced_outliers_{timestamp}.json"
+                )
+                if outlier_file:
+                    output_files["reports"].append(outlier_file)
+                    print(f"📄 Advanced outlier report saved: {outlier_file}")
+            
+            print("✅ Advanced outlier handling completed!")
         
         # Save cleaning report
         if save_output:
@@ -679,6 +780,28 @@ def clean_data(
         print(f"  • Missing Values: {total_missing:,} ({total_missing / (df.shape[0] * df.shape[1]) * 100:.1f}%)")
     print(f"  • Duplicate Rows: {duplicate_pct:.1f}%")
     
+    # Add outlier summary from profiling
+    if reports.get("profiling"):
+        numerical = reports["profiling"].get("numerical", {})
+        if numerical:
+            total_outliers = 0
+            outlier_cols = []
+            for col, stats in numerical.items():
+                outlier_count = stats.get('outliers', {}).get('iqr_method', 0)
+                outlier_pct = stats.get('outliers', {}).get('iqr_percent', 0)
+                total_outliers += outlier_count
+                if outlier_pct > 5:
+                    outlier_cols.append(f"{col} ({outlier_pct:.1f}%)")
+            
+            if total_outliers > 0:
+                print(f"  • Outliers Detected: {total_outliers:,} total")
+                if outlier_cols:
+                    print(f"    Columns with >5% outliers: {', '.join(outlier_cols[:3])}")
+                    if len(outlier_cols) > 3:
+                        print(f"    ... and {len(outlier_cols) - 3} more columns")
+            else:
+                print(f"  • Outliers: None detected")
+    
     # Add cleaning summary if cleaning was performed
     if apply_cleaning and reports.get("cleaning"):
         cleaning_report = reports["cleaning"]
@@ -688,6 +811,14 @@ def clean_data(
             rows_reduction = improvement.get('rows_reduction_percentage', 0)
             if rows_reduction > 0:
                 print(f"  • Rows Reduced: {rows_reduction:.1f}%")
+    
+    # Add advanced outlier handling summary if used
+    if use_advanced_outlier_handler and reports.get("advanced_outlier_handling"):
+        outlier_report = reports["advanced_outlier_handling"]
+        handling = outlier_report.get("handling", {})
+        n_outliers = handling.get("n_outliers_detected", 0)
+        action = handling.get("action", "unknown")
+        print(f"  • Advanced Outlier Handling: {n_outliers} outliers detected (action: {action})")
     
     print(f"  • Reports Generated: {len(output_files.get('reports', []))}")
     print(f"  • Visualizations Saved: {len(output_files.get('visualizations', []))}")

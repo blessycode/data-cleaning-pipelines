@@ -408,7 +408,7 @@ class ProfessionalVisualizer:
             'q3': data.quantile(0.75)
         }
 
-        # Create subplots
+        # Create subplots with domain type for annotation subplot
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=(
@@ -417,8 +417,12 @@ class ProfessionalVisualizer:
                 'Cumulative Distribution',
                 'Statistics Summary'
             ),
-            vertical_spacing=0.15,
-            horizontal_spacing=0.1
+            specs=[
+                [{"type": "xy"}, {"type": "xy"}],
+                [{"type": "xy"}, {"type": "xy"}]  # Keep as xy for scatter trace
+            ],
+            vertical_spacing=0.25,  # Increased from 0.15 for more space
+            horizontal_spacing=0.15  # Increased from 0.1 for more space
         )
 
         # 1. Histogram with KDE
@@ -503,7 +507,7 @@ class ProfessionalVisualizer:
             row=2, col=1
         )
 
-        # 4. Statistics Summary as a table
+        # 4. Statistics Summary as text annotation
         stats_text = f"""
         <b>Statistics Summary:</b><br>
         • Mean: {stats_info['mean']:.2f}<br>
@@ -515,11 +519,25 @@ class ProfessionalVisualizer:
         • Range: {data.max() - data.min():.2f}
         """
 
+        # Add a placeholder trace first to enable the subplot
+        fig.add_trace(
+            go.Scatter(
+                x=[data.min(), data.max()],
+                y=[0, 1],
+                mode='markers',
+                marker=dict(size=0, opacity=0),
+                showlegend=False,
+                hoverinfo='skip'
+            ),
+            row=2, col=2
+        )
+
+        # Add annotation using paper coordinates (works with xy subplots)
         fig.add_annotation(
-            xref="x domain",
-            yref="y domain",
-            x=0.5,
-            y=0.5,
+            xref="paper",
+            yref="paper",
+            x=0.75,  # Position in paper coordinates (0-1)
+            y=0.25,  # Position in paper coordinates (0-1)
             text=stats_text,
             showarrow=False,
             align="left",
@@ -527,23 +545,12 @@ class ProfessionalVisualizer:
             bordercolor="black",
             borderwidth=1,
             borderpad=10,
-            font=dict(size=12),
-            row=2, col=2
+            font=dict(size=11),
+            xanchor="center",
+            yanchor="middle"
         )
 
-        # Add a placeholder trace to enable the subplot
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode='markers',
-                marker=dict(size=0),
-                showlegend=False
-            ),
-            row=2, col=2
-        )
-
-        # Update layout
+        # Update layout with increased margins for better spacing
         fig.update_layout(
             title=f'Distribution Analysis: {column}',
             template=self.template,
@@ -553,7 +560,9 @@ class ProfessionalVisualizer:
             plot_bgcolor='rgba(245,245,245,0.9)',
             paper_bgcolor='white',
             font=dict(family="Arial, sans-serif", size=12),
-            hovermode='x unified'
+            hovermode='x unified',
+            margin=dict(l=80, r=50, t=100, b=80),  # Increased margins for more space
+            title_pad=dict(t=20, b=10)  # Add padding around title
         )
 
         # Update axes
@@ -580,7 +589,7 @@ class ProfessionalVisualizer:
         counts = value_counts.values.tolist()
         percentages = (value_counts.values / len(data) * 100).round(2)
 
-        # Create subplots
+        # Create subplots with proper types for pie chart
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=(
@@ -589,8 +598,12 @@ class ProfessionalVisualizer:
                 'Horizontal Bar Chart',
                 'Value Counts'
             ),
-            vertical_spacing=0.15,
-            horizontal_spacing=0.1
+            specs=[
+                [{"type": "xy"}, {"type": "domain"}],  # Pie chart needs domain type
+                [{"type": "xy"}, {"type": "table"}]     # Table for value counts
+            ],
+            vertical_spacing=0.25,  # Increased from 0.15 for more space
+            horizontal_spacing=0.15  # Increased from 0.1 for more space
         )
 
         # 1. Bar Chart
@@ -660,7 +673,7 @@ class ProfessionalVisualizer:
             row=2, col=2
         )
 
-        # Update layout
+        # Update layout with increased margins for better spacing
         fig.update_layout(
             title=f'Categorical Analysis: {column}',
             template=self.template,
@@ -669,7 +682,9 @@ class ProfessionalVisualizer:
             width=figsize[0],
             plot_bgcolor='rgba(245,245,245,0.9)',
             paper_bgcolor='white',
-            font=dict(family="Arial, sans-serif", size=12)
+            font=dict(family="Arial, sans-serif", size=12),
+            margin=dict(l=80, r=50, t=100, b=80),  # Increased margins for more space
+            title_pad=dict(t=20, b=10)  # Add padding around title
         )
 
         # Update axes
@@ -719,7 +734,7 @@ class ProfessionalVisualizer:
             plot_bgcolor='white',
             paper_bgcolor='white',
             font=dict(family="Arial, sans-serif", size=12),
-            margin=dict(l=100, r=50, t=80, b=100)
+            margin=dict(l=120, r=80, t=100, b=120)  # Increased margins for better spacing
         )
 
         return fig
@@ -745,11 +760,11 @@ class ProfessionalVisualizer:
                 'Top Issues'
             ),
             specs=[
-                [{"type": "bar"}, {"type": "pie"}],
-                [{"type": "indicator"}, {"type": "table"}]
+                [{"type": "bar"}, {"type": "domain"}],  # Pie chart needs domain
+                [{"type": "indicator"}, {"type": "xy"}]  # Use xy for scatter trace compatibility
             ],
-            vertical_spacing=0.2,
-            horizontal_spacing=0.2
+            vertical_spacing=0.3,  # Increased from 0.2 for more space
+            horizontal_spacing=0.25  # Increased from 0.2 for more space
         )
 
         # 1. Missing Values Bar Chart
@@ -768,15 +783,27 @@ class ProfessionalVisualizer:
                 row=1, col=1
             )
         else:
+            # Add an empty bar trace for bar-type subplot
+            fig.add_trace(
+                go.Bar(
+                    x=[],
+                    y=[],
+                    orientation='h',
+                    showlegend=False
+                ),
+                row=1, col=1
+            )
+            # Add annotation using paper coordinates
             fig.add_annotation(
-                xref="x domain",
-                yref="y domain",
-                x=0.5,
-                y=0.5,
+                xref="paper",
+                yref="paper",
+                x=0.25,  # Position in paper coordinates
+                y=0.75,  # Position in paper coordinates
                 text="No Missing Values ✓",
                 showarrow=False,
                 font=dict(size=16, color="green"),
-                row=1, col=1
+                xanchor="center",
+                yanchor="middle"
             )
 
         # 2. Data Types Pie Chart
@@ -822,35 +849,65 @@ class ProfessionalVisualizer:
             issues.append(['Duplicate Rows', f'{duplicate_percent}%', '⚠️'])
 
         if issues:
+            # Add placeholder trace for xy subplot
             fig.add_trace(
-                go.Table(
-                    header=dict(
-                        values=['Issue', 'Value', 'Status'],
-                        fill_color='#2E86AB',
-                        font=dict(color='white', size=12)
-                    ),
-                    cells=dict(
-                        values=[[issue[0] for issue in issues],
-                                [issue[1] for issue in issues],
-                                [issue[2] for issue in issues]],
-                        fill_color='white'
-                    )
+                go.Scatter(
+                    x=[0, 1],
+                    y=[0, 1],
+                    mode='markers',
+                    marker=dict(size=0, opacity=0),
+                    showlegend=False,
+                    hoverinfo='skip'
                 ),
                 row=2, col=2
             )
-        else:
+            # Create a table visualization using annotations
+            issues_text = "<b>Top Issues:</b><br>"
+            for issue in issues:
+                issues_text += f"• {issue[0]}: {issue[1]} {issue[2]}<br>"
+            
             fig.add_annotation(
-                xref="x domain",
-                yref="y domain",
-                x=0.5,
-                y=0.5,
+                xref="paper",
+                yref="paper",
+                x=0.75,  # Position in paper coordinates
+                y=0.25,  # Position in paper coordinates
+                text=issues_text,
+                showarrow=False,
+                align="left",
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor="black",
+                borderwidth=1,
+                borderpad=10,
+                font=dict(size=12),
+                xanchor="center",
+                yanchor="middle"
+            )
+        else:
+            # Add placeholder trace for xy subplot
+            fig.add_trace(
+                go.Scatter(
+                    x=[0, 1],
+                    y=[0, 1],
+                    mode='markers',
+                    marker=dict(size=0, opacity=0),
+                    showlegend=False,
+                    hoverinfo='skip'
+                ),
+                row=2, col=2
+            )
+            fig.add_annotation(
+                xref="paper",
+                yref="paper",
+                x=0.75,  # Position in paper coordinates
+                y=0.25,  # Position in paper coordinates
                 text="No Quality Issues ✓",
                 showarrow=False,
                 font=dict(size=16, color="green"),
-                row=2, col=2
+                xanchor="center",
+                yanchor="middle"
             )
 
-        # Update layout
+        # Update layout with increased margins for better spacing
         fig.update_layout(
             title='Data Quality Summary',
             template=self.template,
@@ -859,7 +916,9 @@ class ProfessionalVisualizer:
             showlegend=False,
             plot_bgcolor='rgba(245,245,245,0.9)',
             paper_bgcolor='white',
-            font=dict(family="Arial, sans-serif", size=12)
+            font=dict(family="Arial, sans-serif", size=12),
+            margin=dict(l=100, r=80, t=120, b=100),  # Increased margins for more space
+            title_pad=dict(t=20, b=10)  # Add padding around title
         )
 
         return fig
