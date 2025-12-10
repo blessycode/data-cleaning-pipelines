@@ -3,6 +3,11 @@ from data_cleaning_pipeline.cleaning import profiling
 from data_cleaning_pipeline.cleaning.missing import DataCleaner
 from data_cleaning_pipeline.cleaning.outlier_handler import OutlierHandler, OutlierConfig
 from data_cleaning_pipeline.cleaning.feature_engineering import FeatureEngineeringAdvisor, suggest_features
+from data_cleaning_pipeline.cleaning.final_validation import DataValidator, validate_data
+from data_cleaning_pipeline.cleaning.output_generation import OutputGenerator, export_data
+from data_cleaning_pipeline.cleaning import column_handlr
+from data_cleaning_pipeline.cleaning import duplicate_handler
+from data_cleaning_pipeline.cleaning import inconsistent_formatting
 import pandas as pd
 import os
 import json
@@ -505,6 +510,19 @@ def clean_data(
             'multivariate_methods': False,
             'contamination': 0.1
         }
+    clean_column_names : bool
+        Whether to clean column names (lowercase, replace spaces/special chars)
+        Default: True
+    validate_final_data : bool
+        Whether to perform final data validation
+        Default: True
+    validation_schema : dict, optional
+        Schema for validation: {'column': {'dtype': 'int64', 'nullable': False}}
+    validation_constraints : dict, optional
+        Custom validation functions: {'column': lambda x: x > 0}
+    export_formats : list, optional
+        Formats to export: ['csv', 'excel', 'json', 'parquet', 'html']
+        Default: ['csv', 'excel', 'json']
     **kwargs : additional arguments for ingestion
 
     Returns:
@@ -535,6 +553,7 @@ def clean_data(
         base_name = "sql_query"
 
     reports = {}
+    execution_start = datetime.now()
 
     # ---------------------------- 1️⃣ INGEST ----------------------------
     print("🔄 Starting Data Ingestion...")
@@ -556,6 +575,20 @@ def clean_data(
         return None, reports, output_files
 
     print("✅ Ingestion completed successfully!")
+    
+    # ---------------------------- 0️⃣ COLUMN NAME CLEANING ----------------------------
+    if clean_column_names:
+        print("\n🔄 Cleaning Column Names...")
+        df, column_report = column_handlr.clean_column_names(
+            df,
+            lowercase=True,
+            replace_spaces=True,
+            replace_special=True,
+            ensure_unique=True,
+            verbose=True
+        )
+        reports["column_cleaning"] = column_report
+        print("✅ Column name cleaning completed!")
 
     # Save ingestion report
     if save_output:
@@ -781,30 +814,99 @@ def clean_data(
             print(f"Error details: {traceback.format_exc()}")
             reports["feature_engineering"] = {"error": str(e), "traceback": traceback.format_exc()}
 
-    # ---------------------------- 5️⃣ EXPORT DATA ----------------------------
+    # ---------------------------- 5️⃣ FINAL VALIDATION ----------------------------
+    if validate_final_data and df is not None:
+        print("\n" + "=" * 70)
+        print("🔍 FINAL DATA VALIDATION")
+        print("=" * 70)
+        
+        try:
+            validation_report = validate_data(
+                df=df,
+                schema=validation_schema,
+                constraints=validation_constraints,
+                verbose=True
+            )
+            
+            reports["final_validation"] = validation_report
+            
+            # Save validation report
+            if save_output:
+                validation_file = save_report_to_json(
+                    validation_report,
+                    directories["reports"],
+                    f"{base_name}_validation_{timestamp}.json"
+                )
+                if validation_file:
+                    output_files["reports"].append(validation_file)
+                    print(f"\n📄 Validation report saved: {validation_file}")
+            
+        except Exception as e:
+            import traceback
+            print(f"⚠️  Could not perform final validation: {str(e)}")
+            reports["final_validation"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    # ---------------------------- 6️⃣ EXPORT DATA ----------------------------
     if save_output and df is not None:
         print("\n💾 Exporting processed data...")
-
-        # Export as CSV
-        csv_file = os.path.join(directories["exports"], f"{base_name}_processed_{timestamp}.csv")
+        
+        # Use OutputGenerator for comprehensive exports
+        if export_formats is None:
+            export_formats = ['csv', 'excel', 'json']
+        
         try:
-            df.to_csv(csv_file, index=False)
-            output_files["exports"].append(csv_file)
-            print(f"📊 Data exported to CSV: {csv_file}")
+            output_gen = OutputGenerator(output_dir=output_dir, verbose=True)
+            exported_files = output_gen.export_dataframe(
+                df=df,
+                filename=base_name,
+                formats=export_formats,
+                include_index=False
+            )
+            
+            # Add to output_files tracking
+            for format_type, filepath in exported_files.items():
+                output_files["exports"].append(filepath)
+            
+            # Generate comprehensive summary report
+            summary_report = output_gen.generate_summary_report(
+                df=df,
+                reports=reports,
+                filename=f"{base_name}_summary"
+            )
+            output_files["reports"].append(summary_report)
+            
         except Exception as e:
-            print(f"❌ Failed to export CSV: {str(e)}")
+            print(f"⚠️  Could not use OutputGenerator, falling back to basic export: {str(e)}")
+            # Fallback to basic CSV export
+            csv_file = os.path.join(directories["exports"], f"{base_name}_processed_{timestamp}.csv")
+            try:
+                df.to_csv(csv_file, index=False)
+                output_files["exports"].append(csv_file)
+                print(f"📊 Data exported to CSV: {csv_file}")
+            except Exception as e2:
+                print(f"❌ Failed to export CSV: {str(e2)}")
 
-        # Export as Parquet (if pandas supports it)
+    # Generate execution log
+    if save_output:
+        execution_end = datetime.now()
+        execution_time = (execution_end - execution_start).total_seconds()
+        
         try:
-            parquet_file = os.path.join(directories["exports"], f"{base_name}_processed_{timestamp}.parquet")
-            df.to_parquet(parquet_file, index=False)
-            output_files["exports"].append(parquet_file)
-            print(f"📊 Data exported to Parquet: {parquet_file}")
-        except Exception as e:
-            # Silently fail for parquet if not supported
+            output_gen = OutputGenerator(output_dir=output_dir, verbose=False)
+            log_file = output_gen.generate_execution_log(
+                execution_info={
+                    'execution_time_seconds': execution_time,
+                    'steps_completed': list(reports.keys()),
+                    'final_shape': df.shape if df is not None else None,
+                    'output_files_count': sum(len(files) for files in output_files.values())
+                },
+                filename=f"{base_name}_execution"
+            )
+            output_files["logs"] = [log_file]
+        except:
             pass
 
-    # ---------------------------- 6️⃣ SUMMARY ----------------------------
+    # ---------------------------- 7️⃣ SUMMARY ----------------------------
     print(f"\n{'=' * 70}")
     print("✨ PIPELINE COMPLETED SUCCESSFULLY!")
     print("=" * 70)

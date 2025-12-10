@@ -19,17 +19,47 @@ def clean_inconsistent_formatting(
     numeric_cleaning=True,
     data_clean=True,
     datetime_columns=None,
-    replace_empty_with_nan=True
+    replace_empty_with_nan=True,
+    verbose: bool = False
 ):
     """
     Cleans inconsistent formatting in a DataFrame for pipeline readiness.
 
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input DataFrame
+    string_case : str
+        Case normalization: 'lower', 'upper', or None
+    replace_spaces : bool
+        Replace spaces in column names with underscores
+    replace_special : bool
+        Replace special characters in column names
+    numeric_cleaning : bool
+        Attempt to convert string numbers to numeric
+    data_clean : bool
+        Clean data values and convert low-cardinality strings to categories
+    datetime_columns : list, optional
+        List of column names to convert to datetime
+    replace_empty_with_nan : bool
+        Replace empty strings with NaN
+    verbose : bool
+        Whether to print progress messages
+
     Returns:
-        cleaned_df (pd.DataFrame)
-        report (dict)
+    --------
+    cleaned_df : pd.DataFrame
+        Cleaned DataFrame
+    report : dict
+        Detailed cleaning report
     """
     cleaned_df = df.copy()
-    report = {}
+    initial_shape = cleaned_df.shape
+    report = {
+        'operation': 'inconsistent_formatting',
+        'initial_shape': initial_shape,
+        'columns_processed': list(cleaned_df.columns)
+    }
 
     # -------------------------
     # 1. Case normalization
@@ -93,7 +123,23 @@ def clean_inconsistent_formatting(
     # -------------------------
     # 6. Replace empty strings with NaN
     # -------------------------
+    empty_strings_replaced = 0
     if replace_empty_with_nan:
+        for col in cleaned_df.columns:
+            empty_count = (cleaned_df[col] == "").sum()
+            if empty_count > 0:
+                empty_strings_replaced += empty_count
         cleaned_df.replace("", pd.NA, inplace=True)
+        report['empty_strings_replaced'] = int(empty_strings_replaced)
+    
+    # Final statistics
+    report['final_shape'] = cleaned_df.shape
+    report['rows_changed'] = initial_shape[0] != cleaned_df.shape[0]
+    report['columns_changed'] = len(report.get('column_name_mapping', {}))
+    
+    if verbose:
+        print(f"  ✓ Formatted {len(report.get('string_case_normalized', []))} string columns")
+        print(f"  ✓ Cleaned {len(report.get('numeric_cleaned_columns', []))} numeric columns")
+        print(f"  ✓ Converted {len(report.get('converted_to_category', []))} columns to category")
 
     return cleaned_df, report
