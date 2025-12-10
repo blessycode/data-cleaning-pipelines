@@ -1,5 +1,6 @@
 from data_cleaning_pipeline.utils import ingestion
 from data_cleaning_pipeline.cleaning import profiling
+from data_cleaning_pipeline.cleaning.missing import DataCleaner
 import pandas as pd
 import os
 import json
@@ -416,14 +417,58 @@ def clean_data(
         save_output: bool = True,
         output_dir: str = "data_pipeline_output",
         show_detailed_profile: bool = True,
+        apply_cleaning: bool = True,
+        cleaning_steps: Optional[list] = None,
+        cleaning_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs
 ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Dict[str, Any]]:
     """
     Main pipeline to clean and profile data with enhanced reporting.
 
+    Parameters:
+    -----------
+    source : str, optional
+        Path to data file or URL
+    file_type : str
+        Type of file ('csv', 'excel', etc.)
+    profile_data : bool
+        Whether to generate data profiling reports
+    include_visuals : bool
+        Whether to generate visualizations
+    columns_to_plot : list, optional
+        Specific columns to plot
+    sql_query : str, optional
+        SQL query for database ingestion
+    sql_conn_str : str, optional
+        Database connection string
+    save_output : bool
+        Whether to save reports and exports
+    output_dir : str
+        Directory for output files
+    show_detailed_profile : bool
+        Whether to show detailed profiling information
+    apply_cleaning : bool
+        Whether to apply data cleaning using DataCleaner
+    cleaning_steps : list, optional
+        List of cleaning steps to perform: ['missing', 'duplicates', 'outliers', 'inconsistent', 'normalize']
+        Default: ['missing', 'duplicates', 'outliers', 'inconsistent']
+    cleaning_kwargs : dict, optional
+        Parameters for cleaning steps. Structure:
+        {
+            'missing_kwargs': {'strategy': 'impute', 'numeric_method': 'auto', ...},
+            'duplicate_kwargs': {'method': 'remove', ...},
+            'outlier_kwargs': {'method': 'iqr', 'handle_action': 'detect_only', ...},
+            'inconsistent_kwargs': {},
+            'normalize_kwargs': {'method': 'none', ...}
+        }
+    **kwargs : additional arguments for ingestion
+
     Returns:
     --------
     tuple : (DataFrame, reports_dict, output_files_dict)
+        - DataFrame: Cleaned and processed DataFrame
+        - reports_dict: Dictionary containing ingestion, cleaning, and profiling reports
+        - output_files_dict: Dictionary of saved file paths
     """
 
     # Initialize output tracking
@@ -479,7 +524,78 @@ def clean_data(
             output_files["reports"].append(ingestion_file)
             print(f"📄 Ingestion report saved: {ingestion_file}")
 
-    # ---------------------------- 2️⃣ PROFILING ----------------------------
+    # ---------------------------- 2️⃣ DATA CLEANING ----------------------------
+    if apply_cleaning:
+        print("\n🔄 Starting Data Cleaning...")
+        
+        # Initialize DataCleaner
+        cleaner = DataCleaner(verbose=True)
+        
+        # Set default cleaning steps if not provided
+        if cleaning_steps is None:
+            cleaning_steps = ['missing', 'duplicates', 'outliers', 'inconsistent']
+        
+        # Prepare cleaning kwargs with defaults
+        if cleaning_kwargs is None:
+            cleaning_kwargs = {}
+        
+        # Set default parameters for each cleaning step
+        default_kwargs = {
+            'missing_kwargs': {
+                'strategy': 'impute',
+                'numeric_method': 'auto',
+                'categorical_method': 'mode',
+                'skew_threshold': 1.0
+            },
+            'duplicate_kwargs': {
+                'method': 'remove',
+                'subset': None
+            },
+            'outlier_kwargs': {
+                'method': 'iqr',
+                'handle_action': 'detect_only'
+            },
+            'inconsistent_kwargs': {},
+            'normalize_kwargs': {
+                'method': 'none'
+            }
+        }
+        
+        # Merge user-provided kwargs with defaults
+        for key, default_value in default_kwargs.items():
+            if key not in cleaning_kwargs:
+                cleaning_kwargs[key] = default_value
+            else:
+                # Merge nested dicts
+                if isinstance(default_value, dict) and isinstance(cleaning_kwargs[key], dict):
+                    cleaning_kwargs[key] = {**default_value, **cleaning_kwargs[key]}
+        
+        # Execute cleaning steps
+        cleaned_df, cleaning_report = cleaner.clean_all(
+            df=df,
+            steps=cleaning_steps,
+            **cleaning_kwargs
+        )
+        
+        reports["cleaning"] = cleaning_report
+        
+        # Update df to cleaned version
+        df = cleaned_df
+        
+        # Save cleaning report
+        if save_output:
+            cleaning_file = save_report_to_json(
+                cleaning_report,
+                directories["reports"],
+                f"{base_name}_cleaning_{timestamp}.json"
+            )
+            if cleaning_file:
+                output_files["reports"].append(cleaning_file)
+                print(f"📄 Cleaning report saved: {cleaning_file}")
+        
+        print("✅ Data cleaning completed successfully!")
+
+    # ---------------------------- 3️⃣ PROFILING ----------------------------
     if profile_data:
         print("\n🔄 Starting Data Profiling...")
 
@@ -522,7 +638,7 @@ def clean_data(
 
         print("✅ Profiling completed successfully!")
 
-    # ---------------------------- 3️⃣ EXPORT DATA ----------------------------
+    # ---------------------------- 4️⃣ EXPORT DATA ----------------------------
     if save_output and df is not None:
         print("\n💾 Exporting processed data...")
 
@@ -545,7 +661,7 @@ def clean_data(
             # Silently fail for parquet if not supported
             pass
 
-    # ---------------------------- 4️⃣ SUMMARY ----------------------------
+    # ---------------------------- 5️⃣ SUMMARY ----------------------------
     print(f"\n{'=' * 70}")
     print("✨ PIPELINE COMPLETED SUCCESSFULLY!")
     print("=" * 70)
@@ -562,6 +678,17 @@ def clean_data(
     if df.shape[0] * df.shape[1] > 0:
         print(f"  • Missing Values: {total_missing:,} ({total_missing / (df.shape[0] * df.shape[1]) * 100:.1f}%)")
     print(f"  • Duplicate Rows: {duplicate_pct:.1f}%")
+    
+    # Add cleaning summary if cleaning was performed
+    if apply_cleaning and reports.get("cleaning"):
+        cleaning_report = reports["cleaning"]
+        if "overall_improvement" in cleaning_report:
+            improvement = cleaning_report["overall_improvement"]
+            print(f"  • Data Quality Score: {improvement.get('data_quality_score', 'N/A')}")
+            rows_reduction = improvement.get('rows_reduction_percentage', 0)
+            if rows_reduction > 0:
+                print(f"  • Rows Reduced: {rows_reduction:.1f}%")
+    
     print(f"  • Reports Generated: {len(output_files.get('reports', []))}")
     print(f"  • Visualizations Saved: {len(output_files.get('visualizations', []))}")
     print(f"  • Exports Created: {len(output_files.get('exports', []))}")
@@ -633,15 +760,17 @@ def quick_profile(
         source: str,
         file_type: str = 'csv',
         save_output: bool = True,
+        apply_cleaning: bool = True,
         **kwargs
 ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Dict[str, Any]]:
-    """Quick ingestion and profiling without visualizations."""
+    """Quick ingestion, cleaning, and profiling without visualizations."""
     return clean_data(
         source=source,
         file_type=file_type,
         profile_data=True,
         include_visuals=False,
         save_output=save_output,
+        apply_cleaning=apply_cleaning,
         **kwargs
     )
 
@@ -651,9 +780,10 @@ def full_analysis(
         file_type: str = 'csv',
         columns_to_plot: Optional[list] = None,
         save_output: bool = True,
+        apply_cleaning: bool = True,
         **kwargs
 ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Dict[str, Any]]:
-    """Full analysis with ingestion, profiling, and visualizations."""
+    """Full analysis with ingestion, cleaning, profiling, and visualizations."""
     return clean_data(
         source=source,
         file_type=file_type,
@@ -661,6 +791,7 @@ def full_analysis(
         include_visuals=True,
         columns_to_plot=columns_to_plot,
         save_output=save_output,
+        apply_cleaning=apply_cleaning,
         **kwargs
     )
 
@@ -690,8 +821,8 @@ if __name__ == "__main__":
 
     print("\n✨ Available Functions:")
     print("─" * 40)
-    print("1. clean_data()          - Full pipeline with all options")
-    print("2. quick_profile()       - Fast ingestion + profiling")
+    print("1. clean_data()          - Full pipeline: ingestion + cleaning + profiling")
+    print("2. quick_profile()       - Fast ingestion + cleaning + profiling")
     print("3. full_analysis()       - Complete analysis with visuals")
     print("4. ingest_only()         - Only load data")
     print("5. profile_existing_dataframe() - Profile any DataFrame")
@@ -702,11 +833,23 @@ if __name__ == "__main__":
     print("• Saves visualizations as HTML & PNG")
     print("• Exports processed data")
     print("• Organized folder structure")
+    print("• Data cleaning with DataCleaner class")
+    print("  - Missing value handling (impute/drop/advanced)")
+    print("  - Duplicate detection and removal")
+    print("  - Outlier detection and handling")
+    print("  - Inconsistent data formatting")
+    print("  - Optional normalization")
 
     print("\n🎯 Example Usage:")
     print("─" * 40)
     print('df, reports, files = quick_profile("data/sample.csv")')
     print('# Or with full analysis:')
     print('df, reports, files = full_analysis("data/sample.csv", columns_to_plot=["age", "income"])')
+    print('# Custom cleaning:')
+    print('df, reports, files = clean_data(')
+    print('    "data/sample.csv",')
+    print('    cleaning_steps=["missing", "duplicates"],')
+    print('    cleaning_kwargs={"missing_kwargs": {"strategy": "impute", "numeric_method": "median"}}')
+    print(')')
 
     print("\n" + "=" * 70)

@@ -5,6 +5,15 @@ data_source = r"C:\Users\blessycode\Downloads\Healthcare.csv"
 file_type = "csv"  # csv, excel, sql
 
 # Run the pipeline WITH VISUALIZATIONS ENABLED
+# Note: Data cleaning is enabled by default (apply_cleaning=True)
+# You can customize cleaning by adding:
+#   apply_cleaning=True,  # Enable/disable cleaning (default: True)
+#   cleaning_steps=['missing', 'duplicates', 'outliers', 'inconsistent'],  # Custom steps
+#   cleaning_kwargs={  # Custom cleaning parameters
+#       'missing_kwargs': {'strategy': 'impute', 'numeric_method': 'median'},
+#       'duplicate_kwargs': {'method': 'remove'},
+#       'outlier_kwargs': {'method': 'iqr', 'handle_action': 'cap'}
+#   }
 cleaned_df, reports, output_files = clean_data(
     data_source,
     file_type=file_type,
@@ -13,7 +22,8 @@ cleaned_df, reports, output_files = clean_data(
     columns_to_plot=['age', 'symptom_count', 'disease', 'gender'],  # ✅ Specify columns to plot
     save_output=True,
     output_dir="data_pipeline_output",
-    show_detailed_profile=True
+    show_detailed_profile=True,
+    apply_cleaning=True  # ✅ Data cleaning enabled (uses DataCleaner class)
 )
 
 # Check results
@@ -103,6 +113,51 @@ for step, report in reports.items():
         else:
             print(f"  Status: ❌ Failed")
             print(f"  Error: {report.get('errors', 'Unknown error')}")
+
+    elif step == "cleaning":
+        print(f"  Status: ✅ Completed")
+        
+        # Show pipeline steps executed
+        steps = report.get("pipeline_steps", [])
+        if steps:
+            print(f"  Steps executed: {', '.join(steps)}")
+        
+        # Show shape changes
+        initial_shape = report.get("initial_shape", (0, 0))
+        final_shape = report.get("final_shape", (0, 0))
+        if initial_shape != final_shape:
+            print(f"  Shape change: {initial_shape[0]:,}×{initial_shape[1]} → {final_shape[0]:,}×{final_shape[1]}")
+        else:
+            print(f"  Final shape: {final_shape[0]:,} rows × {final_shape[1]} columns")
+        
+        # Show overall improvement
+        improvement = report.get("overall_improvement", {})
+        quality_score = improvement.get("data_quality_score", None)
+        if quality_score is not None:
+            print(f"  Data quality score: {quality_score}/100")
+        
+        rows_reduction = improvement.get("rows_reduction_percentage", 0)
+        if rows_reduction > 0:
+            print(f"  Rows reduced: {rows_reduction:.1f}%")
+        
+        # Show step-by-step results
+        step_reports = report.get("step_reports", {})
+        if step_reports:
+            print(f"  Cleaning operations:")
+            for step_name, step_report in step_reports.items():
+                if step_name == "missing_values":
+                    initial = step_report.get("initial_missing_percentage", 0)
+                    final = step_report.get("final_missing_percentage", 0)
+                    improvement_pct = step_report.get("improvement_percentage", 0)
+                    print(f"    • Missing values: {initial:.1f}% → {final:.1f}% (improved by {improvement_pct:.1f}%)")
+                elif step_name == "duplicates":
+                    dup_count = step_report.get("duplicate_count", 0)
+                    if dup_count > 0:
+                        print(f"    • Duplicates: {dup_count} rows handled")
+                elif step_name == "outliers":
+                    total_outliers = step_report.get("total_outliers_detected", 0)
+                    if total_outliers > 0:
+                        print(f"    • Outliers: {total_outliers} detected")
 
     elif step == "profiling":
         summary = report.get("summary", {})

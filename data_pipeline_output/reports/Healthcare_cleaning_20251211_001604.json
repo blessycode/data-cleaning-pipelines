@@ -1,0 +1,93 @@
+{
+  "pipeline_steps": [
+    "missing",
+    "duplicates",
+    "outliers",
+    "inconsistent"
+  ],
+  "initial_shape": [
+    "25000",
+    "6"
+  ],
+  "initial_info": {
+    "missing_percentage": 0.0,
+    "duplicate_percentage": 0.0
+  },
+  "final_shape": [
+    "25000",
+    "6"
+  ],
+  "step_reports": {
+    "missing_values": {
+      "operation": "missing_value_handling",
+      "strategy": "impute",
+      "initial_missing_count": "0",
+      "initial_missing_percentage": 0.0,
+      "columns_with_missing": [],
+      "missing_by_column": {
+        "patient_id": "0",
+        "age": "0",
+        "gender": "0",
+        "symptoms": "0",
+        "symptom_count": "0",
+        "disease": "0"
+      },
+      "imputation_strategy": "basic",
+      "final_missing_count": "0",
+      "final_missing_percentage": 0.0,
+      "improvement_percentage": 0.0
+    },
+    "duplicates": {
+      "operation": "duplicate_handling",
+      "method": "remove",
+      "initial_rows": "25000",
+      "duplicate_count": "0",
+      "duplicate_percentage": 0.0,
+      "message": "No duplicates found"
+    },
+    "outliers": {
+      "operation": "outlier_handling",
+      "method": "iqr",
+      "columns_analyzed": [
+        "patient_id",
+        "age",
+        "symptom_count"
+      ],
+      "outlier_details": {
+        "patient_id": {
+          "outlier_count": "0",
+          "outlier_percentage": "0.0",
+          "lower_bound": "-12498.5",
+          "upper_bound": "37499.5",
+          "method": "iqr"
+        },
+        "age": {
+          "outlier_count": "0",
+          "outlier_percentage": "0.0",
+          "lower_bound": "-44.5",
+          "upper_bound": "135.5",
+          "method": "iqr"
+        },
+        "symptom_count": {
+          "outlier_count": "0",
+          "outlier_percentage": "0.0",
+          "lower_bound": "1.0",
+          "upper_bound": "9.0",
+          "method": "iqr"
+        }
+      },
+      "total_outliers_detected": "0",
+      "handle_action": "detect_only"
+    },
+    "inconsistent_data": {
+      "operation": "inconsistency_handling",
+      "columns_processed": [],
+      "type_conversions": {},
+      "value_corrections": {}
+    }
+  },
+  "overall_improvement": {
+    "rows_reduction_percentage": "0.0",
+    "data_quality_score": "100"
+  }
+}
