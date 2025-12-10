@@ -32,7 +32,9 @@ cleaned_df, reports, output_files = clean_data(
     output_dir="data_pipeline_output",
     show_detailed_profile=True,
     apply_cleaning=True,  # ✅ Data cleaning enabled (uses DataCleaner class)
-    use_advanced_outlier_handler=False  # Set to True to use advanced OutlierHandler
+    use_advanced_outlier_handler=False,  # Set to True to use advanced OutlierHandler
+    enable_feature_suggestions=True,  # ✅ Set to True to get AI-based feature engineering suggestions
+    target_column=None  # Optional: specify target column for supervised learning suggestions
 )
 
 # Check results
@@ -272,6 +274,37 @@ for step, report in reports.items():
         # Show visualization info
         if 'visualizations' in report:
             print(f"  🎨 Visualizations: {len(report['visualizations'])} types generated")
+
+    elif step == "feature_engineering":
+        print(f"  Status: ✅ Completed")
+        
+        if "error" in report:
+            print(f"  Error: {report.get('error')}")
+        else:
+            summary = report.get("summary", {})
+            total_suggestions = summary.get("total_suggestions", 0)
+            print(f"  Total Suggestions: {total_suggestions}")
+            
+            # Show by category
+            by_category = summary.get("by_category", {})
+            if by_category:
+                print(f"  Suggestions by Category:")
+                for category, count in list(by_category.items())[:5]:
+                    print(f"    • {category.replace('_', ' ').title()}: {count}")
+            
+            # Show priority features
+            priority = summary.get("priority_features", [])
+            if priority:
+                print(f"  Priority Features:")
+                for feat in priority[:3]:
+                    print(f"    • [{feat.get('impact', 'medium').upper()}] {feat.get('description', 'N/A')}")
+            
+            # Show quick wins
+            quick_wins = summary.get("quick_wins", [])
+            if quick_wins:
+                print(f"  Quick Wins:")
+                for win in quick_wins[:3]:
+                    print(f"    • {win}")
 
 print("\n" + "=" * 60)
 print("✨ PIPELINE EXECUTION COMPLETE")

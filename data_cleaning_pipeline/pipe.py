@@ -2,6 +2,7 @@ from data_cleaning_pipeline.utils import ingestion
 from data_cleaning_pipeline.cleaning import profiling
 from data_cleaning_pipeline.cleaning.missing import DataCleaner
 from data_cleaning_pipeline.cleaning.outlier_handler import OutlierHandler, OutlierConfig
+from data_cleaning_pipeline.cleaning.feature_engineering import FeatureEngineeringAdvisor, suggest_features
 import pandas as pd
 import os
 import json
@@ -445,6 +446,8 @@ def clean_data(
         cleaning_kwargs: Optional[Dict[str, Any]] = None,
         use_advanced_outlier_handler: bool = False,
         outlier_config: Optional[Dict[str, Any]] = None,
+        enable_feature_suggestions: bool = False,
+        target_column: Optional[str] = None,
         **kwargs
 ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Dict[str, Any]]:
     """
@@ -739,7 +742,46 @@ def clean_data(
 
         print("✅ Profiling completed successfully!")
 
-    # ---------------------------- 4️⃣ EXPORT DATA ----------------------------
+    # ---------------------------- 4️⃣ FEATURE ENGINEERING SUGGESTIONS ----------------------------
+    if enable_feature_suggestions:
+        print("\n" + "=" * 70)
+        print("🤖 GENERATING AI-BASED FEATURE ENGINEERING SUGGESTIONS")
+        print("=" * 70)
+        
+        try:
+            # Import the function to avoid any naming conflicts
+            from data_cleaning_pipeline.cleaning.feature_engineering import suggest_features as get_feature_suggestions
+            
+            # Generate feature engineering suggestions
+            feature_suggestions = get_feature_suggestions(
+                df=df,
+                target_column=target_column,
+                verbose=True
+            )
+            
+            reports["feature_engineering"] = feature_suggestions
+            
+            # Save feature engineering report
+            if save_output:
+                fe_file = save_report_to_json(
+                    feature_suggestions,
+                    directories["reports"],
+                    f"{base_name}_feature_engineering_{timestamp}.json"
+                )
+                if fe_file:
+                    output_files["reports"].append(fe_file)
+                    print(f"\n📄 Feature engineering suggestions saved: {fe_file}")
+            
+            print("\n✅ Feature engineering suggestions completed successfully!")
+            print("=" * 70)
+            
+        except Exception as e:
+            import traceback
+            print(f"\n⚠️  Could not generate feature engineering suggestions: {str(e)}")
+            print(f"Error details: {traceback.format_exc()}")
+            reports["feature_engineering"] = {"error": str(e), "traceback": traceback.format_exc()}
+
+    # ---------------------------- 5️⃣ EXPORT DATA ----------------------------
     if save_output and df is not None:
         print("\n💾 Exporting processed data...")
 
@@ -762,7 +804,7 @@ def clean_data(
             # Silently fail for parquet if not supported
             pass
 
-    # ---------------------------- 5️⃣ SUMMARY ----------------------------
+    # ---------------------------- 6️⃣ SUMMARY ----------------------------
     print(f"\n{'=' * 70}")
     print("✨ PIPELINE COMPLETED SUCCESSFULLY!")
     print("=" * 70)
@@ -819,6 +861,21 @@ def clean_data(
         n_outliers = handling.get("n_outliers_detected", 0)
         action = handling.get("action", "unknown")
         print(f"  • Advanced Outlier Handling: {n_outliers} outliers detected (action: {action})")
+    
+    # Add feature engineering suggestions summary if generated
+    if enable_feature_suggestions and reports.get("feature_engineering"):
+        fe_report = reports["feature_engineering"]
+        if "error" not in fe_report:
+            summary = fe_report.get("summary", {})
+            total_suggestions = summary.get("total_suggestions", 0)
+            if total_suggestions > 0:
+                print(f"  • Feature Engineering Suggestions: {total_suggestions} total suggestions generated")
+                quick_wins = summary.get("quick_wins", [])
+                if quick_wins:
+                    print(f"    Quick wins: {len(quick_wins)} easy-to-implement features")
+                priority = summary.get("priority_features", [])
+                if priority:
+                    print(f"    Priority features: {len(priority)} high-impact suggestions")
     
     print(f"  • Reports Generated: {len(output_files.get('reports', []))}")
     print(f"  • Visualizations Saved: {len(output_files.get('visualizations', []))}")
