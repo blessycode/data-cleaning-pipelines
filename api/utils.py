@@ -52,8 +52,6 @@ async def save_uploaded_file(file: UploadFile, task_id: str) -> str:
 
 def validate_file_type(filename: str, file_type: str) -> bool:
     """Validate file type matches expected type"""
-    from api.config import settings
-    
     if not filename:
         return False
     

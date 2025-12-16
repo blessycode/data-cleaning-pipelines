@@ -18,11 +18,12 @@ import asyncio
 from pathlib import Path
 
 try:
-    from api.auth import verify_token, create_access_token, get_current_user
+    from api.auth import verify_token, create_access_token, get_current_user, get_password_hash
     from api.models import (
         PipelineRequest, PipelineResponse, TaskStatus, 
         ValidationRequest, ValidationResponse,
-        FeatureEngineeringRequest, FeatureEngineeringResponse
+        FeatureEngineeringRequest, FeatureEngineeringResponse,
+        RegisterRequest, RegisterResponse, LoginResponse
     )
     from api.utils import (
         save_uploaded_file, validate_file_type, 
@@ -31,13 +32,15 @@ try:
     from api.tasks import process_pipeline_task
     from api.config import settings
     from api.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+    from api.user_storage import user_storage
 except ImportError:
     # If running from api directory
-    from auth import verify_token, create_access_token, get_current_user
+    from auth import verify_token, create_access_token, get_current_user, get_password_hash
     from models import (
         PipelineRequest, PipelineResponse, TaskStatus, 
         ValidationRequest, ValidationResponse,
-        FeatureEngineeringRequest, FeatureEngineeringResponse
+        FeatureEngineeringRequest, FeatureEngineeringResponse,
+        RegisterRequest, RegisterResponse, LoginResponse
     )
     from utils import (
         save_uploaded_file, validate_file_type, 
@@ -46,6 +49,7 @@ except ImportError:
     from tasks import process_pipeline_task
     from config import settings
     from middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+    from user_storage import user_storage
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -83,8 +87,16 @@ output_dir = Path(settings.OUTPUT_DIR)
 output_dir.mkdir(exist_ok=True)
 app.mount("/outputs", StaticFiles(directory=str(output_dir)), name="outputs")
 
-# Task storage (in production, use Redis or database)
-task_storage: Dict[str, Dict[str, Any]] = {}
+# Database will be used for tasks and users
+# Import database dependencies
+try:
+    from api.database import get_db, init_db, close_db
+    from api.db_service import UserService, TaskService
+    from api.db_models import User, Task
+except ImportError:
+    from database import get_db, init_db, close_db
+    from db_service import UserService, TaskService
+    from db_models import User, Task
 
 
 @app.get("/")
@@ -108,22 +120,109 @@ async def health_check():
     }
 
 
-@app.post("/auth/login")
+@app.post("/auth/register", response_model=RegisterResponse)
+async def register(request: RegisterRequest):
+    """
+    Register a new user
+    
+    Requirements:
+    - Username: 3-50 characters
+    - Password: Minimum 8 characters
+    - Password confirmation must match (if provided)
+    """
+    # Validate password confirmation if provided
+    if request.confirm_password and request.password != request.confirm_password:
+        raise HTTPException(
+            status_code=400,
+            detail="Password and confirmation do not match"
+        )
+    
+    # Check if user already exists
+    if user_storage.user_exists(request.username):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Username '{request.username}' already exists"
+        )
+    
+    # Validate username format (alphanumeric and underscores)
+    if not request.username.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(
+            status_code=400,
+            detail="Username can only contain letters, numbers, underscores, and hyphens"
+        )
+    
+    # Hash password
+    hashed_password = get_password_hash(request.password)
+    
+    # Create user
+    try:
+        user_data = user_storage.create_user(
+            username=request.username,
+            hashed_password=hashed_password,
+            email=request.email,
+            role="user"
+        )
+        
+        return RegisterResponse(
+            message="User registered successfully",
+            username=user_data["username"],
+            email=user_data.get("email")
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/auth/login", response_model=LoginResponse)
 async def login(username: str = Form(...), password: str = Form(...)):
     """
     Authenticate user and get access token
     
-    Note: In production, use proper password hashing and database
+    Supports both registered users and default admin account
     """
-    # Simple authentication (replace with proper auth in production)
+    # Ensure default admin exists (lazy initialization)
+    user_storage.ensure_default_admin()
+    
+    # Try to authenticate with user storage first
+    if user_storage.verify_user(username, password):
+        user = user_storage.get_user(username)
+        token = create_access_token(
+            data={
+                "sub": user["username"],
+                "role": user.get("role", "user")
+            }
+        )
+        return LoginResponse(
+            access_token=token,
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            username=user["username"],
+            role=user.get("role", "user")
+        )
+    
+    # Fallback to default admin (for backward compatibility)
     if username == settings.ADMIN_USERNAME and password == settings.ADMIN_PASSWORD:
-        token = create_access_token(data={"sub": username})
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        }
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+        # Create admin user if it doesn't exist yet
+        if not user_storage.user_exists(username):
+            user_storage.ensure_default_admin()
+        
+        # Try again after ensuring admin exists
+        if user_storage.verify_user(username, password):
+            user = user_storage.get_user(username)
+            token = create_access_token(
+                data={
+                    "sub": user["username"],
+                    "role": user.get("role", "admin")
+                }
+            )
+            return LoginResponse(
+                access_token=token,
+                token_type="bearer",
+                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                username=user["username"],
+                role=user.get("role", "admin")
+            )
+    
+    raise HTTPException(status_code=401, detail="Invalid username or password")
 
 
 @app.post("/api/v1/pipeline/run", response_model=PipelineResponse)
@@ -246,7 +345,7 @@ async def download_task_output(
 @app.post("/api/v1/validate", response_model=ValidationResponse)
 async def validate_data_endpoint(
     file: UploadFile = File(...),
-    schema: Optional[str] = Form(None),  # JSON string
+    schema: Optional[str] = Form(None, alias="schema"),  # JSON string (accepts "schema" for backward compatibility)
     constraints: Optional[str] = Form(None),  # JSON string
     current_user: str = Depends(get_current_user)
 ):
@@ -380,11 +479,52 @@ async def delete_task(
     return {"message": "Task deleted successfully"}
 
 
+@app.get("/api/v1/users/me")
+async def get_current_user_info(
+    current_user: str = Depends(get_current_user)
+):
+    """Get current user information"""
+    user = user_storage.get_user(current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "username": user["username"],
+        "email": user.get("email"),
+        "role": user.get("role", "user"),
+        "created_at": user.get("created_at"),
+        "is_active": user.get("is_active", True)
+    }
+
+
+@app.get("/api/v1/users")
+async def list_users(
+    current_user: str = Depends(get_current_user),
+    active_only: bool = True
+):
+    """List all users (admin only)"""
+    # Check if user is admin
+    user = user_storage.get_user(current_user)
+    if not user or user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    return {"users": user_storage.list_users(active_only=active_only)}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Startup tasks"""
     # Create output directory
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+    
+    # Initialize user storage (creates default admin if needed, but lazily)
+    # Admin creation is deferred to avoid bcrypt initialization issues at import time
+    try:
+        user_storage.ensure_default_admin()
+    except Exception as e:
+        # If admin creation fails, log but don't crash - it will be created on first login
+        print(f"Warning: Could not create default admin at startup: {e}")
+        print("Admin will be created on first login attempt")
     
     # Cleanup old files
     asyncio.create_task(cleanup_old_files(settings.OUTPUT_DIR, max_age_hours=24))

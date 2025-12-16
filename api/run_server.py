@@ -28,8 +28,21 @@ if __name__ == "__main__":
     print("=" * 70)
     print()
     
+    # Determine the correct app path
+    current_dir = Path(__file__).parent
+    parent_dir = current_dir.parent
+    if (parent_dir / "api").exists() and current_dir.name == "api":
+        # Running from api directory, parent has api subdirectory
+        app_path = "api.main:app"
+    elif (current_dir / "main.py").exists():
+        # Running from api directory directly
+        app_path = "main:app"
+    else:
+        # Running from project root
+        app_path = "api.main:app"
+    
     uvicorn.run(
-        "api.main:app" if Path("api").exists() else "main:app",
+        app_path,
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,

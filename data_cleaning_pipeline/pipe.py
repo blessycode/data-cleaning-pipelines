@@ -606,35 +606,6 @@ def clean_data(
         if ingestion_file:
             output_files["reports"].append(ingestion_file)
             print(f"📄 Ingestion report saved: {ingestion_file}")
-    
-    # ---------------------------- 1.5️⃣ COLUMN NAME CLEANING ----------------------------
-    if clean_column_names_flag:
-        print("\n🔧 Cleaning column names...")
-        try:
-            df, column_cleaning_report = clean_column_names(
-                df,
-                lowercase=True,
-                replace_spaces=True,
-                replace_special=True,
-                ensure_unique=True,
-                verbose=True
-            )
-            reports["column_cleaning"] = column_cleaning_report
-            
-            if save_output:
-                col_file = save_report_to_json(
-                    column_cleaning_report,
-                    directories["reports"],
-                    f"{base_name}_column_cleaning_{timestamp}.json"
-                )
-                if col_file:
-                    output_files["reports"].append(col_file)
-                    print(f"📄 Column cleaning report saved: {col_file}")
-            
-            print("✅ Column names cleaned successfully!")
-        except Exception as e:
-            print(f"⚠️  Column name cleaning failed: {str(e)}")
-            reports["column_cleaning"] = {"error": str(e)}
 
     # ---------------------------- 2️⃣ DATA CLEANING ----------------------------
     if apply_cleaning:

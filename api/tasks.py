@@ -5,12 +5,10 @@ Async task execution for long-running pipeline operations
 
 import asyncio
 import os
+import sys
 from typing import Dict, Any, List
 from pathlib import Path
 import pandas as pd
-
-import sys
-from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))

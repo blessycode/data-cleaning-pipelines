@@ -4,7 +4,7 @@ Environment-based configuration with security defaults
 """
 
 import os
-from typing import List
+from typing import List, Optional
 
 # Try to import BaseSettings from pydantic-settings (Pydantic v2)
 try:
@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_REQUESTS: int = 100
     RATE_LIMIT_WINDOW: int = 60  # seconds
+    
+    # Database
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
+    DB_NAME: str = os.getenv("DB_NAME", "data_cleaning_db")
+    DB_USER: str = os.getenv("DB_USER", "postgres")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
+    DATABASE_URL: Optional[str] = os.getenv(
+        "DATABASE_URL",
+        None  # Will be constructed from components if not provided
+    )
     
     class Config:
         env_file = ".env"

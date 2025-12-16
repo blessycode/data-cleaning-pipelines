@@ -40,8 +40,11 @@ class TaskStatus(BaseModel):
 
 class ValidationRequest(BaseModel):
     """Request model for data validation"""
-    schema: Optional[Dict[str, Any]] = None
+    data_schema: Optional[Dict[str, Any]] = Field(None, alias="schema", description="Data schema for validation")
     constraints: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        populate_by_name = True  # Allow both "schema" and "data_schema"
 
 
 class ValidationResponse(BaseModel):
@@ -73,4 +76,34 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+
+class RegisterRequest(BaseModel):
+    """Request model for user registration"""
+    username: str = Field(..., min_length=3, max_length=50, description="Username (3-50 characters)")
+    password: str = Field(..., min_length=8, description="Password (minimum 8 characters)")
+    email: Optional[str] = Field(None, description="Email address")
+    confirm_password: Optional[str] = Field(None, description="Password confirmation")
+
+
+class RegisterResponse(BaseModel):
+    """Response model for user registration"""
+    message: str = Field(..., description="Success message")
+    username: str = Field(..., description="Registered username")
+    email: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    """Request model for login (alternative to form data)"""
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """Response model for login"""
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(..., description="Token expiration in seconds")
+    username: str = Field(..., description="Authenticated username")
+    role: Optional[str] = Field(None, description="User role")
 

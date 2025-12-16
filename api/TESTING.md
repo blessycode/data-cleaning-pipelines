@@ -40,8 +40,26 @@ python test_api.py ../cleaned_dataset.csv
 curl http://localhost:8000/health
 ```
 
-#### 2. Authentication
+#### 2. Register a New User (Optional)
 ```bash
+curl -X POST "http://localhost:8000/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "testuser",
+    "password": "testpassword123",
+    "email": "test@example.com",
+    "confirm_password": "testpassword123"
+  }'
+```
+
+#### 3. Authentication (Login)
+```bash
+# Login with registered user
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=testuser&password=testpassword123"
+
+# Or login with default admin
 curl -X POST "http://localhost:8000/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "username=admin&password=admin123"
@@ -49,7 +67,13 @@ curl -X POST "http://localhost:8000/auth/login" \
 
 Save the token from the response.
 
-#### 3. Run Pipeline
+#### 4. Get Current User Info
+```bash
+curl -X GET "http://localhost:8000/api/v1/users/me" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### 5. Run Pipeline
 ```bash
 TOKEN="your-token-here"
 
@@ -82,14 +106,30 @@ import requests
 
 BASE_URL = "http://localhost:8000"
 
-# 1. Login
+# 1. Register a new user (optional)
+register_data = {
+    "username": "testuser",
+    "password": "testpassword123",
+    "email": "test@example.com",
+    "confirm_password": "testpassword123"
+}
+response = requests.post(f"{BASE_URL}/auth/register", json=register_data)
+print("Registration:", response.json())
+
+# 2. Login
 response = requests.post(
     f"{BASE_URL}/auth/login",
-    data={"username": "admin", "password": "admin123"}
+    data={"username": "testuser", "password": "testpassword123"}
 )
 token = response.json()["access_token"]
+print("Login successful!")
 
-# 2. Run Pipeline
+# 3. Get current user info
+headers = {"Authorization": f"Bearer {token}"}
+response = requests.get(f"{BASE_URL}/api/v1/users/me", headers=headers)
+print("User info:", response.json())
+
+# 4. Run Pipeline
 headers = {"Authorization": f"Bearer {token}"}
 files = {"file": open("data.csv", "rb")}
 data = {
