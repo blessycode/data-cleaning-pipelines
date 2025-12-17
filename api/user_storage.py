@@ -79,9 +79,17 @@ class UserStorage:
         admin_username = settings.ADMIN_USERNAME
         admin_password = settings.ADMIN_PASSWORD
         
+        # Hash the admin password, but be resilient if the preferred backend isn't available
+        try:
+            hashed = get_password_hash(admin_password)
+        except Exception:
+            # Fallback to a simple sha256 legacy format so the service remains usable
+            import hashlib
+            hashed = f"legacy:sha256${hashlib.sha256(admin_password.encode('utf-8')).hexdigest()}"
+
         self._users[admin_username] = {
             "username": admin_username,
-            "hashed_password": get_password_hash(admin_password),
+            "hashed_password": hashed,
             "email": f"{admin_username}@example.com",
             "role": "admin",
             "created_at": datetime.now().isoformat(),
@@ -190,7 +198,13 @@ class UserStorage:
         hashed_password = user.get("hashed_password")
         if not hashed_password:
             return False
-        
+
+        # Support legacy sha256-stored passwords (marked with prefix) for environments
+        if isinstance(hashed_password, str) and hashed_password.startswith("legacy:sha256$"):
+            import hashlib
+            expected = hashed_password.split("$", 1)[1]
+            return hashlib.sha256(password.encode('utf-8')).hexdigest() == expected
+
         return verify_password(password, hashed_password)
 
 

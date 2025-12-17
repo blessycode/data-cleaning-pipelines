@@ -6,6 +6,7 @@ python-multipart>=0.0.6
 # Authentication & Security
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
 
 # Data Processing
 pandas>=2.0.0
@@ -32,4 +33,8 @@ psycopg2-binary>=2.9.9  # PostgreSQL adapter
 
 # Utilities
 python-dateutil>=2.8.2
+chardet>=5.0.0  # Character encoding detection
+
+# Machine Learning (for data cleaning pipeline)
+scikit-learn>=1.3.0  # For imputation and data processing
 

@@ -31,16 +31,25 @@ async def create_default_admin():
         admin = await UserService.get_user_by_username(db, settings.ADMIN_USERNAME)
         if not admin:
             try:
+                # Ensure password is not too long for bcrypt (72 bytes)
+                admin_password = settings.ADMIN_PASSWORD
+                password_bytes = admin_password.encode('utf-8')
+                if len(password_bytes) > 72:
+                    admin_password = password_bytes[:72].decode('utf-8', errors='ignore')
+                    print(f"⚠️  Admin password truncated to 72 bytes for bcrypt compatibility")
+                
                 admin = await UserService.create_user(
                     db=db,
                     username=settings.ADMIN_USERNAME,
-                    password=settings.ADMIN_PASSWORD,
+                    password=admin_password,
                     email=f"{settings.ADMIN_USERNAME}@example.com",
                     role="admin"
                 )
                 print(f"✅ Created default admin user: {admin.username}")
             except Exception as e:
                 print(f"⚠️  Could not create admin user: {e}")
+                import traceback
+                traceback.print_exc()
         else:
             print(f"✅ Admin user already exists: {admin.username}")
 

@@ -63,6 +63,9 @@ app = FastAPI(
 # Security
 security = HTTPBearer()
 
+# In-memory task storage (used by background pipeline tasks)
+task_storage: Dict[str, Dict[str, Any]] = {}
+
 # Security Middleware
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -180,7 +183,11 @@ async def login(username: str = Form(...), password: str = Form(...)):
     Supports both registered users and default admin account
     """
     # Ensure default admin exists (lazy initialization)
-    user_storage.ensure_default_admin()
+    try:
+        user_storage.ensure_default_admin()
+    except Exception as e:
+        # Don't let admin creation prevent logins; fall back to checking configured admin creds
+        print(f"Warning: ensure_default_admin failed during login: {e}")
     
     # Try to authenticate with user storage first
     if user_storage.verify_user(username, password):

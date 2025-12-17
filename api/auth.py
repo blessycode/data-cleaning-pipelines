@@ -3,6 +3,7 @@ Authentication and Authorization Module
 JWT-based authentication with security best practices
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
@@ -16,17 +17,13 @@ except ImportError:
     from config import settings
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
 
 # Security scheme
 security = HTTPBearer()
 
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash
-    
-    Note: bcrypt has a 72-byte limit, so we truncate if necessary
-    """
+    """Verify a password against its hash"""
     # Convert to bytes to check length
     password_bytes = plain_password.encode('utf-8')
     if len(password_bytes) > 72:
@@ -36,18 +33,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password: str) -> str:
-    """Hash a password
-    
-    Note: bcrypt has a 72-byte limit, so we truncate if necessary
-    """
-    # Convert to bytes to check length
+async def get_password_hash(password: str) -> str:
+    """Hash a password asynchronously"""
+    # Truncate if necessary (though handled in db_service.py as well)
     password_bytes = password.encode('utf-8')
     if len(password_bytes) > 72:
-        # Truncate to 72 bytes (not characters, bytes!)
-        password_bytes = password_bytes[:72]
-        password = password_bytes.decode('utf-8', errors='ignore')
-    return pwd_context.hash(password)
+        password = password_bytes[:72].decode('utf-8', errors='ignore')
+    
+    # Run the blocking hashing operation in a thread pool
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: pwd_context.hash(password))
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

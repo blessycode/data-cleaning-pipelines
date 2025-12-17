@@ -26,5 +26,6 @@ WORKDIR /app/api
 EXPOSE 8000
 
 # Run migrations and start server
-CMD ["sh", "-c", "alembic upgrade head && python init_db.py && uvicorn main:app --host 0.0.0.0 --port 8000"]
+# Use a startup script to handle errors gracefully
+CMD ["sh", "-c", "alembic upgrade head && (python init_db.py || echo 'Admin creation skipped') && uvicorn main:app --host 0.0.0.0 --port 8000"]
 

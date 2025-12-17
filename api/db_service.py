@@ -48,7 +48,13 @@ class UserService:
         if existing:
             raise ValueError(f"Username '{username}' already exists")
         
-        hashed_password = get_password_hash(password)
+        # Password is already truncated in get_password_hash, but ensure it's not too long
+        # Bcrypt has 72-byte limit
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password = password_bytes[:72].decode('utf-8', errors='ignore')
+        
+        hashed_password = await get_password_hash(password)
         user = User(
             username=username,
             email=email,
