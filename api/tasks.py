@@ -17,8 +17,14 @@ from data_cleaning_pipeline.pipe import clean_data
 
 try:
     from api.config import settings
+    from api.database import AsyncSessionLocal
+    from api.db_service import TaskService
+    from api.utils import convert_numpy_types
 except ImportError:
     from config import settings
+    from database import AsyncSessionLocal
+    from db_service import TaskService
+    from utils import convert_numpy_types
 
 
 async def process_pipeline_task(
@@ -30,19 +36,20 @@ async def process_pipeline_task(
     apply_cleaning: bool,
     enable_feature_suggestions: bool,
     validate_final_data: bool,
-    export_formats: List[str],
-    task_storage: Dict[str, Any]
+    export_formats: List[str]
 ):
     """
     Process pipeline task in background
     
-    Updates task_storage with progress and results
+    Updates database with progress and results
     """
+    async def update_task_in_db(**kwargs):
+        async with AsyncSessionLocal() as db:
+            await TaskService.update_task(db, task_id, **kwargs)
+
     try:
         # Update status to running
-        task_storage[task_id]["status"] = "running"
-        task_storage[task_id]["progress"] = 10
-        task_storage[task_id]["message"] = "Loading data..."
+        await update_task_in_db(status="running", progress=10, message="Loading data...")
         
         # Run pipeline (this is CPU-bound, so we run it in executor)
         loop = asyncio.get_event_loop()
@@ -51,9 +58,13 @@ async def process_pipeline_task(
         task_output_dir = Path(settings.OUTPUT_DIR) / task_id
         task_output_dir.mkdir(parents=True, exist_ok=True)
         
-        task_storage[task_id]["progress"] = 20
-        task_storage[task_id]["message"] = "Running pipeline..."
+        await update_task_in_db(progress=20, message="Initializing ML Engine...")
         
+        # We'll split the work or just simulate the status updates if it's one big call
+        # Since clean_data is a single call, we'll keep it simple but refine the message
+        
+        await update_task_in_db(progress=30, message="Synthesizing Data Schema...")
+
         # Run pipeline in thread pool to avoid blocking
         result = await loop.run_in_executor(
             None,
@@ -69,21 +80,32 @@ async def process_pipeline_task(
             str(task_output_dir)
         )
         
+        await update_task_in_db(progress=90, message="Finalizing Standardized Outputs...")
+        
         cleaned_df, reports, output_files = result
         
         # Update task with results
-        task_storage[task_id]["status"] = "completed"
-        task_storage[task_id]["progress"] = 100
-        task_storage[task_id]["message"] = "Pipeline completed successfully"
-        task_storage[task_id]["result"] = {
-            "shape": {
-                "rows": int(len(cleaned_df)) if cleaned_df is not None else 0,
-                "columns": int(len(cleaned_df.columns)) if cleaned_df is not None else 0
-            },
-            "reports_generated": len(reports),
-            "output_files": len(output_files.get("exports", []))
-        }
-        task_storage[task_id]["output_files"] = output_files.get("exports", [])
+        await update_task_in_db(
+            status="completed",
+            progress=100,
+            message="Pipeline completed successfully",
+            result=convert_numpy_types({
+                "shape": {
+                    "rows": int(len(cleaned_df)) if cleaned_df is not None else 0,
+                    "columns": int(len(cleaned_df.columns)) if cleaned_df is not None else 0
+                },
+                "summary": {
+                    "cleaning": reports.get("cleaning", {}).get("overall_improvement", {}),
+                    "profiling": reports.get("profiling", {}).get("summary", {}),
+                    "features": reports.get("feature_engineering", {}).get("summary", {}),
+                    "validation": reports.get("final_validation", {}).get("summary", {})
+                },
+                "visuals": [Path(p).name for p in output_files.get("visualizations", [])],
+                "reports_generated": len(reports),
+                "output_files": len(output_files.get("exports", []))
+            }),
+            output_files=output_files.get("exports", [])
+        )
         
         # Cleanup uploaded file
         try:
@@ -92,10 +114,12 @@ async def process_pipeline_task(
             pass
         
     except Exception as e:
-        task_storage[task_id]["status"] = "failed"
-        task_storage[task_id]["progress"] = 0
-        task_storage[task_id]["message"] = f"Pipeline failed: {str(e)}"
-        task_storage[task_id]["error"] = str(e)
+        await update_task_in_db(
+            status="failed",
+            progress=0,
+            message=f"Pipeline failed: {str(e)}",
+            error=str(e)
+        )
 
 
 def _run_pipeline_sync(

@@ -6,7 +6,7 @@ Full-stack data cleaning pipeline application with:
 - **Backend**: FastAPI + PostgreSQL
 - **Frontend**: React + TypeScript
 - **Database**: PostgreSQL with SQLAlchemy
-- **Deployment**: Docker Compose ready
+- **Deployment**: Manual
 
 ## 📁 Project Structure
 
@@ -25,34 +25,12 @@ data-cleaning-pipelines/
 │   │   └── services/     # API services
 │   └── ...
 ├── data_cleaning_pipeline/  # Core pipeline logic
-├── docker-compose.yml     # Docker orchestration
-├── Dockerfile            # Backend Docker image
 └── .env.example          # Environment template
 ```
 
 ## 🚀 Quick Start
 
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# 1. Clone and setup
-git clone <repo>
-cd data-cleaning-pipelines
-cp .env.example .env
-
-# 2. Start all services
-docker-compose up -d
-
-# 3. Initialize database
-docker-compose exec api python init_db.py
-docker-compose exec api alembic upgrade head
-
-# 4. Access
-# Frontend: http://localhost:3000
-# API: http://localhost:8000/docs
-```
-
-### Option 2: Manual Setup
+### Manual Setup
 
 #### Backend
 ```bash
@@ -85,7 +63,7 @@ echo "REACT_APP_API_URL=http://localhost:8000" > .env
 npm start
 ```
 
-## 🔧 Configuration
+##  wrench Configuration
 
 ### Environment Variables
 
@@ -118,14 +96,6 @@ alembic revision --autogenerate -m "Initial migration"
 alembic upgrade head
 ```
 
-### Reset Database
-
-```bash
-docker-compose down -v  # Removes volumes
-docker-compose up -d
-docker-compose exec api python init_db.py
-```
-
 ## 🎨 Frontend Features
 
 - User registration and login
@@ -144,26 +114,6 @@ docker-compose exec api python init_db.py
 - `GET /api/v1/tasks/{task_id}/download` - Download results
 
 See `/docs` for full API documentation.
-
-## 🐳 Docker Commands
-
-```bash
-# Start services
-docker-compose up -d
-
-# Stop services
-docker-compose down
-
-# View logs
-docker-compose logs -f
-
-# Rebuild
-docker-compose up -d --build
-
-# Access shell
-docker-compose exec api bash
-docker-compose exec db psql -U postgres
-```
 
 ## 📦 Production Deployment
 
@@ -234,12 +184,12 @@ npm test
 - ✅ PostgreSQL database integration
 - ✅ User authentication and registration
 - ✅ React frontend with TypeScript
-- ✅ Docker Compose setup
 - ✅ Database migrations (Alembic)
 - ✅ Production-ready configuration
 - ✅ Deployment documentation
 
 ## 🎉 Ready for Deployment!
 
-The application is fully configured and ready for deployment. Use Docker Compose for local development or follow DEPLOYMENT.md for production.
+The application is fully configured and ready for deployment. Follow DEPLOYMENT.md for production.
+
 

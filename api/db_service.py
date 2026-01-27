@@ -8,6 +8,7 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import uuid
 
 try:
     from api.db_models import User, Task
@@ -25,6 +26,16 @@ class UserService:
         """Get user by username (case-insensitive)"""
         result = await db.execute(
             select(User).where(User.username.ilike(username))
+        )
+        return result.scalar_one_or_none()
+    
+    @staticmethod
+    async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+        """Get user by email (case-insensitive)"""
+        if not email:
+            return None
+        result = await db.execute(
+            select(User).where(User.email.ilike(email))
         )
         return result.scalar_one_or_none()
     
@@ -74,7 +85,7 @@ class UserService:
         if not user or not user.is_active:
             return None
         
-        if verify_password(password, user.hashed_password):
+        if await verify_password(password, user.hashed_password):
             return user
         return None
     
@@ -118,6 +129,10 @@ class TaskService:
         file_name: str,
         file_path: str,
         file_type: str,
+        task_id: Optional[str] = None,
+        status: str = "pending",
+        progress: int = 0,
+        message: str = "Task queued",
         **options
     ) -> Task:
         """Create a new task"""
@@ -126,9 +141,10 @@ class TaskService:
             file_name=file_name,
             file_path=file_path,
             file_type=file_type,
-            status="pending",
-            progress=0,
-            message="Task queued",
+            task_id=task_id or str(uuid.uuid4()),
+            status=status,
+            progress=progress,
+            message=message,
             **options
         )
         db.add(task)
@@ -144,6 +160,17 @@ class TaskService:
         )
         return result.scalar_one_or_none()
     
+    @staticmethod
+    async def list_all_tasks(db: AsyncSession, limit: int = 50) -> List[Task]:
+        """List all tasks across all users (admin only)"""
+        result = await db.execute(
+            select(Task)
+            .options(selectinload(Task.user))
+            .order_by(Task.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     @staticmethod
     async def get_user_tasks(
         db: AsyncSession,

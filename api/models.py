@@ -29,7 +29,7 @@ class TaskStatus(BaseModel):
     """Task status model"""
     task_id: str
     status: str = Field(..., description="pending, running, completed, failed")
-    created_at: str
+    created_at: datetime
     file_name: Optional[str] = None
     progress: int = Field(default=0, ge=0, le=100, description="Progress percentage")
     message: str
@@ -105,5 +105,15 @@ class LoginResponse(BaseModel):
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Token expiration in seconds")
     username: str = Field(..., description="Authenticated username")
-    role: Optional[str] = Field(None, description="User role")
+
+class ChangePasswordRequest(BaseModel):
+    """Request model for password change"""
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+    confirm_new_password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Request model for forgot password"""
+    email: str
 

@@ -119,3 +119,26 @@ def load_dataframe(file_path: str, file_type: str) -> pd.DataFrame:
     else:
         raise ValueError(f"Unsupported file type: {file_type}")
 
+
+def convert_numpy_types(obj: Any) -> Any:
+    """
+    Recursively convert numpy types to native Python types
+    to ensure JSON serializability.
+    """
+    import numpy as np
+    
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(i) for i in obj]
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return convert_numpy_types(obj.tolist())
+    elif pd.isna(obj):
+        return None
+    return obj

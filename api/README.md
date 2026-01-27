@@ -264,33 +264,17 @@ response = requests.get(
 print("Task status:", response.json())
 ```
 
-## 🐳 Docker Support (Optional)
-
-Create `Dockerfile`:
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements-api.txt .
-RUN pip install --no-cache-dir -r requirements-api.txt
-
-COPY . .
-
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
 ## 🔧 Production Deployment
 
 1. **Change default credentials** in `.env`
 2. **Use strong SECRET_KEY** (generate with: `openssl rand -hex 32`)
 3. **Enable HTTPS** with reverse proxy (nginx)
 4. **Set DEBUG=False**
-5. **Use process manager** (systemd, supervisor, or Docker)
+5. **Use process manager** (systemd, supervisor, or PM2)
 6. **Configure rate limiting**
 7. **Set up logging**
 8. **Use database** for task storage (Redis/PostgreSQL)
+
 
 ## 📊 Monitoring
 

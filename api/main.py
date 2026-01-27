@@ -1,7 +1,3 @@
-"""
-FastAPI Backend for Data Cleaning Pipeline
-Main application entry point with security and authentication
-"""
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -14,8 +10,11 @@ import json
 import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-import asyncio
 from pathlib import Path
+import asyncio
+
+# Core database types
+from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
     from api.auth import verify_token, create_access_token, get_current_user, get_password_hash
@@ -23,7 +22,7 @@ try:
         PipelineRequest, PipelineResponse, TaskStatus, 
         ValidationRequest, ValidationResponse,
         FeatureEngineeringRequest, FeatureEngineeringResponse,
-        RegisterRequest, RegisterResponse, LoginResponse
+        RegisterRequest, RegisterResponse, LoginResponse, ChangePasswordRequest, ForgotPasswordRequest
     )
     from api.utils import (
         save_uploaded_file, validate_file_type, 
@@ -32,7 +31,6 @@ try:
     from api.tasks import process_pipeline_task
     from api.config import settings
     from api.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
-    from api.user_storage import user_storage
 except ImportError:
     # If running from api directory
     from auth import verify_token, create_access_token, get_current_user, get_password_hash
@@ -40,7 +38,7 @@ except ImportError:
         PipelineRequest, PipelineResponse, TaskStatus, 
         ValidationRequest, ValidationResponse,
         FeatureEngineeringRequest, FeatureEngineeringResponse,
-        RegisterRequest, RegisterResponse, LoginResponse
+        RegisterRequest, RegisterResponse, LoginResponse, ChangePasswordRequest, ForgotPasswordRequest
     )
     from utils import (
         save_uploaded_file, validate_file_type, 
@@ -49,7 +47,6 @@ except ImportError:
     from tasks import process_pipeline_task
     from config import settings
     from middleware import RateLimitMiddleware, SecurityHeadersMiddleware
-    from user_storage import user_storage
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -63,8 +60,8 @@ app = FastAPI(
 # Security
 security = HTTPBearer()
 
-# In-memory task storage (used by background pipeline tasks)
-task_storage: Dict[str, Dict[str, Any]] = {}
+# Database will be used for tasks and users
+# Removed in-memory task storage in favor of database
 
 # Security Middleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -124,7 +121,7 @@ async def health_check():
 
 
 @app.post("/auth/register", response_model=RegisterResponse)
-async def register(request: RegisterRequest):
+async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """
     Register a new user
     
@@ -141,11 +138,21 @@ async def register(request: RegisterRequest):
         )
     
     # Check if user already exists
-    if user_storage.user_exists(request.username):
+    existing_user = await UserService.get_user_by_username(db, request.username)
+    if existing_user:
         raise HTTPException(
             status_code=400,
             detail=f"Username '{request.username}' already exists"
         )
+    
+    # Check if email is already in use
+    if request.email:
+        existing_email = await UserService.get_user_by_email(db, request.email)
+        if existing_email:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Email '{request.email}' is already registered"
+            )
     
     # Validate username format (alphanumeric and underscores)
     if not request.username.replace("_", "").replace("-", "").isalnum():
@@ -154,82 +161,93 @@ async def register(request: RegisterRequest):
             detail="Username can only contain letters, numbers, underscores, and hyphens"
         )
     
-    # Hash password
-    hashed_password = get_password_hash(request.password)
-    
     # Create user
     try:
-        user_data = user_storage.create_user(
+        user = await UserService.create_user(
+            db=db,
             username=request.username,
-            hashed_password=hashed_password,
+            password=request.password,
             email=request.email,
             role="user"
         )
         
         return RegisterResponse(
             message="User registered successfully",
-            username=user_data["username"],
-            email=user_data.get("email")
+            username=user.username,
+            email=user.email
         )
-    except ValueError as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-async def login(username: str = Form(...), password: str = Form(...)):
+async def login(username: str = Form(...), password: str = Form(...), db: AsyncSession = Depends(get_db)):
     """
     Authenticate user and get access token
     
     Supports both registered users and default admin account
     """
-    # Ensure default admin exists (lazy initialization)
-    try:
-        user_storage.ensure_default_admin()
-    except Exception as e:
-        # Don't let admin creation prevent logins; fall back to checking configured admin creds
-        print(f"Warning: ensure_default_admin failed during login: {e}")
+    # Try to authenticate using UserService
+    user = await UserService.verify_user(db, username, password)
     
-    # Try to authenticate with user storage first
-    if user_storage.verify_user(username, password):
-        user = user_storage.get_user(username)
+    if user:
         token = create_access_token(
             data={
-                "sub": user["username"],
-                "role": user.get("role", "user")
+                "sub": user.username,
+                "role": user.role
             }
         )
         return LoginResponse(
             access_token=token,
             token_type="bearer",
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            username=user["username"],
-            role=user.get("role", "user")
+            username=user.username,
+            role=user.role
         )
     
-    # Fallback to default admin (for backward compatibility)
+    # Fallback to default admin check from settings if not in DB 
+    # (Though init_db.py should have put it in DB)
     if username == settings.ADMIN_USERNAME and password == settings.ADMIN_PASSWORD:
-        # Create admin user if it doesn't exist yet
-        if not user_storage.user_exists(username):
-            user_storage.ensure_default_admin()
-        
-        # Try again after ensuring admin exists
-        if user_storage.verify_user(username, password):
-            user = user_storage.get_user(username)
-            token = create_access_token(
-                data={
-                    "sub": user["username"],
-                    "role": user.get("role", "admin")
-                }
-            )
-            return LoginResponse(
-                access_token=token,
-                token_type="bearer",
-                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-                username=user["username"],
-                role=user.get("role", "admin")
-            )
+        token = create_access_token(
+            data={
+                "sub": settings.ADMIN_USERNAME,
+                "role": "admin"
+            }
+        )
+        return LoginResponse(
+            access_token=token,
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            username=settings.ADMIN_USERNAME,
+            role="admin"
+        )
     
     raise HTTPException(status_code=401, detail="Invalid username or password")
+
+
+@app.post("/auth/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Change current user's password"""
+    if request.new_password != request.confirm_new_password:
+        raise HTTPException(status_code=400, detail="New passwords do not match")
+    
+    user = await UserService.get_user_by_username(db, current_user)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify current password
+    if not await verify_password(request.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Invalid current password")
+    
+    # Update password
+    hashed_password = await get_password_hash(request.new_password)
+    await UserService.update_user(db, user.id, hashed_password=hashed_password)
+    
+    return {"message": "Password changed successfully"}
 
 
 @app.post("/api/v1/pipeline/run", response_model=PipelineResponse)
@@ -243,7 +261,8 @@ async def run_pipeline(
     enable_feature_suggestions: bool = Form(False),
     validate_final_data: bool = Form(True),
     export_formats: Optional[str] = Form(None),  # JSON string of list
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Run complete data cleaning pipeline
@@ -251,6 +270,11 @@ async def run_pipeline(
     Requires authentication
     """
     try:
+        # Get current user ID
+        user = await UserService.get_user_by_username(db, current_user)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
         # Validate file
         if not validate_file_type(file.filename, file_type):
             raise HTTPException(status_code=400, detail="Invalid file type")
@@ -269,15 +293,24 @@ async def run_pipeline(
             except:
                 formats_list = export_formats.split(",") if isinstance(export_formats, str) else None
         
-        # Create task
-        task_storage[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "created_at": datetime.now().isoformat(),
-            "file_name": file.filename,
-            "progress": 0,
-            "message": "Task queued"
-        }
+        # Create task in database
+        await TaskService.create_task(
+            db=db,
+            user_id=user.id,
+            file_name=file.filename,
+            file_path=file_path,
+            file_type=file_type,
+            task_id=task_id,
+            status="pending",
+            progress=0,
+            message="Task queued",
+            profile_data=profile_data,
+            include_visuals=include_visuals,
+            apply_cleaning=apply_cleaning,
+            enable_feature_suggestions=enable_feature_suggestions,
+            validate_final_data=validate_final_data,
+            export_formats=formats_list or ['csv', 'excel', 'parquet']
+        )
         
         # Run pipeline in background
         background_tasks.add_task(
@@ -290,8 +323,7 @@ async def run_pipeline(
             apply_cleaning=apply_cleaning,
             enable_feature_suggestions=enable_feature_suggestions,
             validate_final_data=validate_final_data,
-            export_formats=formats_list or ['csv', 'excel', 'parquet'],
-            task_storage=task_storage
+            export_formats=formats_list or ['csv', 'excel', 'parquet']
         )
         
         return PipelineResponse(
@@ -307,29 +339,40 @@ async def run_pipeline(
 @app.get("/api/v1/tasks/{task_id}", response_model=TaskStatus)
 async def get_task_status_endpoint(
     task_id: str,
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get status of a pipeline task"""
-    if task_id not in task_storage:
+    task = await TaskService.get_task_by_id(db, task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    task = task_storage[task_id]
-    return TaskStatus(**task)
+    # Check if task belongs to user (unless admin)
+    user = await UserService.get_user_by_username(db, current_user)
+    if user.id != task.user_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access forbidden")
+        
+    return task
 
 
 @app.get("/api/v1/tasks/{task_id}/download")
 async def download_task_output(
     task_id: str,
     file_type: str = "csv",
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Download output files from completed task"""
-    if task_id not in task_storage:
+    task = await TaskService.get_task_by_id(db, task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
-    task = task_storage[task_id]
+    # Check permission
+    user = await UserService.get_user_by_username(db, current_user)
+    if user.id != task.user_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access forbidden")
     
-    if task["status"] != "completed":
+    if task.status != "completed":
         raise HTTPException(status_code=400, detail="Task not completed yet")
     
     # Find output file
@@ -337,8 +380,17 @@ async def download_task_output(
     if not output_dir.exists():
         raise HTTPException(status_code=404, detail="Output files not found")
     
+    # Map logical format names to proper file extensions
+    extension_map = {
+        'csv': 'csv',
+        'excel': 'xlsx',
+        'parquet': 'parquet',
+        'json': 'json'
+    }
+    ext = extension_map.get(file_type, file_type)
+    
     # Look for file with specified type
-    files = list(output_dir.glob(f"*.{file_type}"))
+    files = list(output_dir.glob(f"*.{ext}"))
     if not files:
         raise HTTPException(status_code=404, detail=f"No {file_type} file found")
     
@@ -457,22 +509,30 @@ async def suggest_features_endpoint(
 @app.get("/api/v1/tasks")
 async def list_tasks(
     limit: int = 10,
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """List recent tasks (for current user)"""
-    tasks = list(task_storage.values())
-    tasks.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return {"tasks": tasks[:limit], "total": len(tasks)}
+    user = await UserService.get_user_by_username(db, current_user)
+    tasks = await TaskService.get_user_tasks(db, user.id, limit=limit)
+    return {"tasks": tasks, "total": len(tasks)}
 
 
 @app.delete("/api/v1/tasks/{task_id}")
 async def delete_task(
     task_id: str,
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Delete a task and its outputs"""
-    if task_id not in task_storage:
+    task = await TaskService.get_task_by_id(db, task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check permission
+    user = await UserService.get_user_by_username(db, current_user)
+    if user.id != task.user_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access forbidden")
     
     # Cleanup output files
     output_dir = Path(settings.OUTPUT_DIR) / task_id
@@ -480,42 +540,139 @@ async def delete_task(
         import shutil
         shutil.rmtree(output_dir)
     
-    # Remove from storage
-    del task_storage[task_id]
+    # Remove from database
+    await TaskService.delete_task(db, task_id)
     
     return {"message": "Task deleted successfully"}
 
 
 @app.get("/api/v1/users/me")
 async def get_current_user_info(
-    current_user: str = Depends(get_current_user)
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get current user information"""
-    user = user_storage.get_user(current_user)
+    user = await UserService.get_user_by_username(db, current_user)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     return {
-        "username": user["username"],
-        "email": user.get("email"),
-        "role": user.get("role", "user"),
-        "created_at": user.get("created_at"),
-        "is_active": user.get("is_active", True)
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "plan": user.plan,
+        "created_at": user.created_at,
+        "is_active": user.is_active
     }
+
+
+@app.post("/auth/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Mock forgot password endpoint"""
+    user = await UserService.get_user_by_email(db, request.email)
+    if not user:
+        # Don't reveal if user exists or not for security
+        return {"message": "If an account exists with that email, instructions have been sent."}
+    
+    # In a real app, generate token and send email here
+    return {"message": "Instructions sent to your email."}
 
 
 @app.get("/api/v1/users")
 async def list_users(
     current_user: str = Depends(get_current_user),
-    active_only: bool = True
+    active_only: bool = True,
+    db: AsyncSession = Depends(get_db)
 ):
     """List all users (admin only)"""
     # Check if user is admin
-    user = user_storage.get_user(current_user)
-    if not user or user.get("role") != "admin":
+    user = await UserService.get_user_by_username(db, current_user)
+    if not user or user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    return {"users": user_storage.list_users(active_only=active_only)}
+    users = await UserService.list_users(db, active_only=active_only)
+    return {"users": users}
+
+
+@app.get("/api/v1/admin/tasks")
+async def list_all_tasks(
+    current_user: str = Depends(get_current_user),
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """List all tasks (admin only)"""
+    user = await UserService.get_user_by_username(db, current_user)
+    if not user or user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    tasks = await TaskService.list_all_tasks(db, limit=limit)
+    
+    return {
+        "tasks": [
+            {
+                "task_id": t.task_id,
+                "username": t.user.username if t.user else "System",
+                "file_name": t.file_name,
+                "status": t.status,
+                "progress": t.progress,
+                "message": t.message,
+                "created_at": t.created_at,
+                "completed_at": t.completed_at
+            }
+            for t in tasks
+        ]
+    }
+
+
+@app.get("/api/v1/admin/stats")
+async def get_admin_stats(
+    current_user: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get system stats (admin only)"""
+    # Check if user is admin
+    user = await UserService.get_user_by_username(db, current_user)
+    if not user or user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    from sqlalchemy import select, func
+    
+    # User stats
+    user_count_result = await db.execute(select(func.count(User.id)))
+    total_users = user_count_result.scalar()
+    
+    # Task stats
+    task_count_result = await db.execute(select(func.count(Task.id)))
+    total_tasks = task_count_result.scalar()
+    
+    # Status distribution
+    status_dist_result = await db.execute(
+        select(Task.status, func.count(Task.id))
+        .group_by(Task.status)
+    )
+    status_distribution = {status: count for status, count in status_dist_result.all()}
+    
+    # Plan distribution
+    plan_dist_result = await db.execute(
+        select(User.plan, func.count(User.id))
+        .group_by(User.plan)
+    )
+    plan_distribution = {plan: count for plan, count in plan_dist_result.all()}
+    
+    # Active pipelines (running or pending)
+    active_tasks_result = await db.execute(
+        select(func.count(Task.id))
+        .where(Task.status.in_(["running", "pending"]))
+    )
+    active_tasks = active_tasks_result.scalar()
+
+    return {
+        "total_users": total_users,
+        "total_tasks": total_tasks,
+        "active_pipelines": active_tasks,
+        "status_distribution": status_distribution,
+        "plan_distribution": plan_distribution
+    }
 
 
 @app.on_event("startup")
@@ -524,15 +681,7 @@ async def startup_event():
     # Create output directory
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
     
-    # Initialize user storage (creates default admin if needed, but lazily)
-    # Admin creation is deferred to avoid bcrypt initialization issues at import time
-    try:
-        user_storage.ensure_default_admin()
-    except Exception as e:
-        # If admin creation fails, log but don't crash - it will be created on first login
-        print(f"Warning: Could not create default admin at startup: {e}")
-        print("Admin will be created on first login attempt")
-    
+    # Tables are created via init_db.py or alembic, but ensure output dirs are ready
     # Cleanup old files
     asyncio.create_task(cleanup_old_files(settings.OUTPUT_DIR, max_age_hours=24))
 

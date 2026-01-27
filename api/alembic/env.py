@@ -27,19 +27,12 @@ if config.config_file_name is not None:
 # FORCE SYNCHRONOUS DATABASE URL FOR ALEMBIC
 # ------------------------------------------------------------------
 
-raw_database_url = os.getenv(
-    "DATABASE_URL",
-    f"postgresql://{settings.DB_USER}:{settings.DB_PASSWORD}@"
-    f"{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
-)
+try:
+    from api.database import SYNC_DATABASE_URL
+except ImportError:
+    from database import SYNC_DATABASE_URL
 
-# If async driver is provided, replace it with sync driver
-if raw_database_url.startswith("postgresql+asyncpg://"):
-    database_url = raw_database_url.replace(
-        "postgresql+asyncpg://", "postgresql+psycopg2://"
-    )
-else:
-    database_url = raw_database_url
+database_url = SYNC_DATABASE_URL
 
 config.set_main_option("sqlalchemy.url", database_url)
 

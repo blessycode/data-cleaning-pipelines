@@ -22,7 +22,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds
 # Security scheme
 security = HTTPBearer()
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
     # Convert to bytes to check length
     password_bytes = plain_password.encode('utf-8')
@@ -30,7 +30,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         # Truncate to 72 bytes (not characters, bytes!)
         password_bytes = password_bytes[:72]
         plain_password = password_bytes.decode('utf-8', errors='ignore')
-    return pwd_context.verify(plain_password, hashed_password)
+    
+    # Run the blocking verification in a thread pool
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: pwd_context.verify(plain_password, hashed_password))
 
 
 async def get_password_hash(password: str) -> str:

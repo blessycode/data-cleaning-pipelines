@@ -1,248 +1,101 @@
 # Deployment Guide
 
-Complete guide for deploying the Data Cleaning Pipeline application.
+Complete guide for deploying the Data Cleaning Pipeline application reliably.
 
-## 🚀 Quick Start with Docker Compose
+## 🚀 Quick Start (Manual)
 
-The easiest way to deploy the entire stack is using Docker Compose.
+This guide covers how to set up the application manually.
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
-- At least 4GB RAM available
-- Ports 3000, 8000, and 5432 available
+- Python 3.9+
+- Node.js 16+
+- PostgreSQL (or use default SQLite for testing/development if configured)
 
-### Steps
+### Service Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd data-cleaning-pipelines
-   ```
+#### 1. Backend (API) Setup
 
-2. **Create environment file**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-3. **Start all services**
-   ```bash
-   docker-compose up -d
-   ```
-
-4. **Initialize database**
-   ```bash
-   docker-compose exec api python init_db.py
-   ```
-
-5. **Run migrations**
-   ```bash
-   docker-compose exec api alembic upgrade head
-   ```
-
-6. **Access the application**
-   - Frontend: http://localhost:3000
-   - API: http://localhost:8000
-   - API Docs: http://localhost:8000/docs
-   - Database: localhost:5432
-
-### Stop services
-```bash
-docker-compose down
-```
-
-### View logs
-```bash
-docker-compose logs -f
-```
-
-## 📦 Manual Deployment
-
-### Backend (API)
-
-1. **Install dependencies**
+1. **Navigate to the API directory:**
    ```bash
    cd api
+   ```
+
+2. **Install dependencies:**
+   ```bash
    pip install -r requirements-api.txt
    ```
 
-2. **Set up PostgreSQL**
+3. **Set up environment:**
+   Copy `.env.example` to `.env` (if available) or create one.
    ```bash
-   # Create database
-   createdb data_cleaning_db
-   
-   # Or using psql
-   psql -U postgres
-   CREATE DATABASE data_cleaning_db;
-   ```
-
-3. **Configure environment**
-   ```bash
+   # Linux/Mac
    export DATABASE_URL="postgresql+asyncpg://user:password@localhost:5432/data_cleaning_db"
    export SECRET_KEY="your-secret-key-here"
+
+   # Windows (PowerShell)
+   $env:DATABASE_URL="postgresql+asyncpg://user:password@localhost:5432/data_cleaning_db"
+   $env:SECRET_KEY="your-secret-key-here"
    ```
 
-4. **Run migrations**
+4. **Initialize Database:**
+   Ensure your PostgreSQL server is running and the database exists.
    ```bash
+   # Run migrations
    alembic upgrade head
-   ```
-
-5. **Initialize database**
-   ```bash
+   
+   # Initialize DB
    python init_db.py
    ```
 
-6. **Start server**
+5. **Start the API Server:**
    ```bash
    uvicorn main:app --host 0.0.0.0 --port 8000
    ```
+   The API will be available at http://localhost:8000.
 
-### Frontend
+#### 2. Frontend Setup
 
-1. **Install dependencies**
+1. **Navigate to the frontend directory:**
    ```bash
    cd frontend
+   ```
+
+2. **Install dependencies:**
+   ```bash
    npm install
    ```
 
-2. **Configure API URL**
-   ```bash
-   # Create .env file
-   echo "REACT_APP_API_URL=http://localhost:8000" > .env
+3. **Configure API URL:**
+   Create a `.env` file in the `frontend` directory:
+   ```env
+   REACT_APP_API_URL=http://localhost:8000
    ```
 
-3. **Build for production**
+4. **Start Development Server:**
+   ```bash
+   npm start
+   ```
+   The frontend will be available at http://localhost:3000.
+
+5. **Build for Production:**
    ```bash
    npm run build
    ```
-
-4. **Serve with nginx** (see nginx.conf in frontend/)
-
-## 🐳 Docker Production Build
-
-### Build images
-```bash
-# Build API
-docker build -t data-cleaning-api .
-
-# Build Frontend
-cd frontend
-docker build -t data-cleaning-frontend .
-```
-
-### Run with Docker
-```bash
-# Start database
-docker run -d \
-  --name postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=data_cleaning_db \
-  -p 5432:5432 \
-  postgres:15-alpine
-
-# Start API
-docker run -d \
-  --name api \
-  --link postgres:db \
-  -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@db:5432/data_cleaning_db" \
-  -p 8000:8000 \
-  data-cleaning-api
-
-# Start Frontend
-docker run -d \
-  --name frontend \
-  -p 3000:3000 \
-  data-cleaning-frontend
-```
+   Serve the contents of `build/` using a static site server (e.g., Nginx, serve).
 
 ## ☁️ Cloud Deployment
 
-### AWS (EC2 + RDS)
+### AWS / DigitalOcean / Heroku
 
-1. **Launch EC2 instance**
-   - Ubuntu 22.04 LTS
-   - t3.medium or larger
-   - Security group: Allow ports 22, 80, 443, 8000
+Since Dockerfiles are removed, follow the standard "Platform as a Service" or "Virtual Machine" setup:
 
-2. **Set up RDS PostgreSQL**
-   - Create RDS instance (PostgreSQL 15)
-   - Note connection details
-
-3. **Deploy application**
-   ```bash
-   # On EC2 instance
-   git clone <repository>
-   cd data-cleaning-pipelines
-   
-   # Install Docker
-   curl -fsSL https://get.docker.com -o get-docker.sh
-   sh get-docker.sh
-   
-   # Update .env with RDS connection
-   # Start services
-   docker-compose up -d
-   ```
-
-4. **Set up Nginx reverse proxy**
-   ```nginx
-   server {
-       listen 80;
-       server_name your-domain.com;
-       
-       location / {
-           proxy_pass http://localhost:3000;
-       }
-       
-       location /api {
-           proxy_pass http://localhost:8000;
-       }
-   }
-   ```
-
-### Heroku
-
-1. **Install Heroku CLI**
-
-2. **Create apps**
-   ```bash
-   heroku create data-cleaning-api
-   heroku create data-cleaning-frontend
-   ```
-
-3. **Add PostgreSQL**
-   ```bash
-   heroku addons:create heroku-postgresql:hobby-dev -a data-cleaning-api
-   ```
-
-4. **Deploy**
-   ```bash
-   # API
-   cd api
-   heroku git:remote -a data-cleaning-api
-   git push heroku main
-   
-   # Frontend
-   cd ../frontend
-   heroku git:remote -a data-cleaning-frontend
-   git push heroku main
-   ```
-
-### DigitalOcean App Platform
-
-1. **Create App**
-   - Connect GitHub repository
-   - Select "Docker" as build type
-
-2. **Configure services**
-   - API service: Port 8000
-   - Frontend service: Port 3000
-   - Database: Managed PostgreSQL
-
-3. **Set environment variables**
-   - DATABASE_URL
-   - SECRET_KEY
-   - REACT_APP_API_URL
+1. **Provision Server**: Ubuntu 22.04 LTS recommended.
+2. **Install Dependencies**: proper python and node versions.
+3. **Database**: Use a managed RDS/PostgreSQL instance or install locally on the VM.
+4. **Environment Variables**: Set `DATABASE_URL`, `SECRET_KEY`, etc.
+5. **Process Management**: Use `systemd` or `supervisor` to keep `uvicorn` running.
+6. **Reverse Proxy**: Use Nginx to forward requests to localhost:8000 (API) and serve frontend static files.
 
 ## 🔒 Security Checklist
 
@@ -253,71 +106,21 @@ docker run -d \
 - [ ] Configure CORS properly
 - [ ] Set up firewall rules
 - [ ] Enable database backups
-- [ ] Use environment variables for secrets
-- [ ] Regular security updates
-- [ ] Monitor logs for suspicious activity
-
-## 📊 Monitoring
-
-### Health Checks
-
-- API: `GET /health`
-- Database: Check connection
-- Frontend: Check if serving files
-
-### Logs
-
-```bash
-# Docker logs
-docker-compose logs -f api
-docker-compose logs -f frontend
-docker-compose logs -f db
-
-# Application logs
-tail -f api/logs/app.log
-```
-
-## 🔄 Updates
-
-### Update application
-
-```bash
-# Pull latest code
-git pull
-
-# Rebuild and restart
-docker-compose up -d --build
-
-# Run migrations
-docker-compose exec api alembic upgrade head
-```
+- [ ] Monitor logs
 
 ## 🆘 Troubleshooting
 
 ### Database connection issues
-- Check DATABASE_URL format
-- Verify database is running
-- Check firewall rules
-- Verify credentials
+- Check `DATABASE_URL` format.
+- Verify database server is running.
+- Verify credentials.
 
 ### API not starting
-- Check logs: `docker-compose logs api`
-- Verify database connection
-- Check environment variables
+- Check logs.
+- Verify all dependencies in `requirements-api.txt` are installed.
 
 ### Frontend not loading
-- Check API URL in .env
-- Verify CORS settings
-- Check browser console for errors
+- Check API URL in `.env`.
+- Verify the API is running on port 8000.
 
-## 📝 Environment Variables
-
-See `.env.example` for all required variables.
-
-Key variables:
-- `DATABASE_URL`: PostgreSQL connection string
-- `SECRET_KEY`: JWT secret key
-- `ADMIN_USERNAME`: Default admin username
-- `ADMIN_PASSWORD`: Default admin password
-- `REACT_APP_API_URL`: Frontend API URL
 

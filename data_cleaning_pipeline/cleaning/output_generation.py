@@ -87,7 +87,18 @@ class OutputGenerator:
     def _export_format(self, df: pd.DataFrame, base_name: str, 
                       format_type: str, timestamp: str) -> Optional[str]:
         """Export data in specific format"""
-        filename = f"{base_name}_{timestamp}.{format_type}"
+        # Map logical format names to proper file extensions
+        extension_map = {
+            'csv': 'csv',
+            'excel': 'xlsx',
+            'parquet': 'parquet',
+            'json': 'json',
+            'pickle': 'pkl',
+            'html': 'html'
+        }
+        
+        ext = extension_map.get(format_type, format_type)
+        filename = f"{base_name}_{timestamp}.{ext}"
         filepath = os.path.join(self.output_dir, filename)
         
         if format_type == 'csv':

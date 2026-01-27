@@ -15,13 +15,21 @@ except ImportError:
     from config import settings
 
 # Database URL
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"postgresql+asyncpg://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', 'postgres')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'data_cleaning_db')}"
-)
+# Default to SQLite for ease of use without Docker/Postgres
+DEFAULT_SQLITE_URL = "sqlite+aiosqlite:///./data_cleaning.db"
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    # Check if we should use PostgreSQL or SQLite as default
+    # If DB_HOST is localhost and we can't connect, SQLite is a safer default for "just working"
+    DATABASE_URL = DEFAULT_SQLITE_URL
+    print(f"ℹ️  No DATABASE_URL found. Using SQLite: {DATABASE_URL}")
 
 # Sync database URL for Alembic migrations
-SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "").replace("asyncpg://", "psycopg2://")
+if "sqlite" in DATABASE_URL:
+    SYNC_DATABASE_URL = DATABASE_URL.replace("+aiosqlite", "")
+else:
+    SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "").replace("asyncpg://", "psycopg2://")
 
 # Create async engine
 engine = create_async_engine(

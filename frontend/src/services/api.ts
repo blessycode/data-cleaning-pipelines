@@ -83,6 +83,26 @@ export const authAPI = {
     const response = await api.get('/api/v1/users/me');
     return response.data;
   },
+  changePassword: async (data: any) => {
+    const response = await api.post('/auth/change-password', data);
+    return response.data;
+  },
+  listUsers: async (activeOnly: boolean = true) => {
+    const response = await api.get(`/api/v1/users?active_only=${activeOnly}`);
+    return response.data;
+  },
+  listAllTasks: async () => {
+    const response = await api.get('/api/v1/admin/tasks');
+    return response.data;
+  },
+  getStats: async () => {
+    const response = await api.get('/api/v1/admin/stats');
+    return response.data;
+  },
+  forgotPassword: async (email: string) => {
+    const response = await api.post('/auth/forgot-password', { email });
+    return response.data;
+  },
 };
 
 export const taskAPI = {
